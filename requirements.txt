@@ -1,0 +1,4 @@
+pyzmq>=26.2
+mediapipe>=0.10
+opencv-python>=4.10
+# numpy>=1.26
