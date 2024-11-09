@@ -85,9 +85,7 @@ class BlendShape:
 
     def __init__(self, init_obj: FaceLandmarkerResult):
         self.categories = {}
-
         categories = init_obj.face_blendshapes[0]
-
         for category in categories:
             self.categories[category.category_name] = category.score
 
@@ -103,7 +101,7 @@ class BlendShape:
 class MPFace:
 
     def __init__(self, capture: int, modelpath: str, fps=60):
-        self.capture = cv2.VideoCapture(capture)
+        self.capture = cv2.VideoCapture(capture) # opencv webcam feed
         self.model_path = modelpath
         self.fps = fps
         self.options = FaceLandmarkerOptions(
@@ -115,8 +113,16 @@ class MPFace:
         self.landmarker = FaceLandmarker.create_from_options(self.options)
 
     def process(self, result: FaceLandmarkerResult, output_image: mp.Image, timestamp_ms: int):
-        data = BlendShape(result).serialize()
-        socket.send_string(data)
+        try:
+            if result.face_blendshapes:
+                
+                data = BlendShape(result).serialize()
+                socket.send_string(data)
+                print("sent values")
+        except Exception as e:
+            print(e)
+            print(result.face_blendshapes)
+        
 
     def gen_mp_frame(self, capture: cv2.VideoCapture):
         ret, frame = capture.read()
@@ -140,7 +146,7 @@ class MPFace:
                 try:
                     landmarker.detect_async(self.gen_mp_frame(self.capture), int(time.time() * 1000))
                     time.sleep(1 / self.fps)
-                    print(time.time())
+                    
                 except KeyboardInterrupt:
                     break
 
