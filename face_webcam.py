@@ -133,8 +133,8 @@ class BlendShape:
         "EyeLookUpRight": 1.6,
         "EyeSquintLeft": 1,
         "EyeSquintRight": 1,
-        "EyeWideLeft": 60, # this can be much much lower but because glasses it is high
-        "EyeWideRight": 60, # about 5-10 seems to do the trick wo glassses
+        "EyeWideLeft": 5, # this can be much much lower but because glasses it is high
+        "EyeWideRight": 5, # about 5-10 seems to do the trick wo glassses
         "JawForward": 2,
         "JawLeft": 5,
         "JawOpen": 1,
