@@ -5,6 +5,9 @@ from datetime import datetime
 import time
 import numpy as np
 import socket
+import threading
+import tkinter as tk
+from tkinter import messagebox
 
 from pprint import pprint
 import cv2
@@ -110,8 +113,6 @@ class BlendShapeParams:
     }
 
 
-    path = ""
-    tuning = {} 
     params = {}
 
     def __init__(self, tuning_params_path: str) -> None:
@@ -195,6 +196,16 @@ class MPFace:
         self.landmarker = FaceLandmarker.create_from_options(self.options)
         self.params = BlendShapeParams(tuning_path)
 
+        self.root = tk.Tk()
+        self.root.title("Blend Shape Parameters")
+
+        # Start background work in a thread
+        threading.Thread(target=self.run, daemon=True).start()
+
+        self.create_interface()
+        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+        self.root.mainloop()
+
     def process(self, result: FaceLandmarkerResult, output_image: mp.Image, timestamp_ms: int):
         try:
             if result.face_blendshapes:
@@ -202,7 +213,6 @@ class MPFace:
                 sender.connect()
                 sender.send_message(data)
                 sender.disconnect()
-    
                 print("sent values")
         except Exception as e:
             print(e)
@@ -214,7 +224,7 @@ class MPFace:
         ret, frame = capture.read()
         if not ret:
             return
-        cv2.flip(frame, 1)
+        # cv2.flip(frame, 1)
         # could just specify 1440p and then select midway point as center
         # height, width = frame.shape[:2]
         # square_size = min(width, height)
@@ -236,12 +246,109 @@ class MPFace:
                     
                 except KeyboardInterrupt:
                     break
+                    
+    def create_interface(self):
+        # Create a frame for the parameters
+        param_frame = tk.Frame(self.root)
+        param_frame.pack(pady=10, padx=10)
+
+        self.entries = {}
+
+        # Create a header for mul and offset
+        header_frame = tk.Frame(param_frame)
+        header_frame.pack()
+
+        tk.Label(header_frame, text="Parameter").grid(row=0, column=0)
+        tk.Label(header_frame, text="Multiplier (mul)").grid(row=0, column=1)
+        tk.Label(header_frame, text="Offset").grid(row=0, column=2)
+
+        # Organize parameters in columns
+        column_count = 3  # Number of columns
+        params_per_column = 10  # How many parameters per column
+
+        # Create column frames
+        column_frames = []
+        for col in range(column_count):
+            column_frame = tk.Frame(param_frame)
+            column_frame.pack(side=tk.LEFT, padx=10)
+            column_frames.append(column_frame)
+
+        for idx, (key, values) in enumerate(self.params.tuning.items()):
+            col_idx = idx // params_per_column % column_count  # Determine which column to put the parameter in
+            frame = tk.Frame(column_frames[col_idx])
+            frame.pack(pady=5)
+
+            tk.Label(frame, text=key, width=20, anchor="w").pack(side=tk.LEFT)
+
+            mul_entry = tk.Entry(frame, width=10)
+            mul_entry.insert(0, str(values['mul']))
+            mul_entry.pack(side=tk.LEFT)
+            mul_entry.bind("<Return>", lambda event, k=key: self.update_mul_from_entry(k, mul_entry.get()))
+            mul_entry.bind("<FocusOut>", lambda event, k=key, e=mul_entry: self.update_mul_from_entry(k, e.get()))
+
+            offset_entry = tk.Entry(frame, width=10)
+            offset_entry.insert(0, str(values['offset']))
+            offset_entry.pack(side=tk.LEFT)
+            offset_entry.bind("<Return>", lambda event, k=key: self.update_offset_from_entry(k, offset_entry.get()))
+            offset_entry.bind("<FocusOut>", lambda event, k=key, e=offset_entry: self.update_offset_from_entry(k, e.get()))
+
+            self.entries[key] = {
+                'mul_entry': mul_entry,
+                'offset_entry': offset_entry
+            }
+
+        save_button = tk.Button(self.root, text="Save[does not actually save them]", command=self.run_save)
+        save_button.pack(pady=10)
+
+    def update_mul(self, key, value):
+        self.params.tuning[key]['mul'] = float(value)
+        self.entries[key]['mul_entry'].delete(0, tk.END)
+        self.entries[key]['mul_entry'].insert(0, str(value))
+
+    def update_offset(self, key, value):
+        self.params.tuning[key]['offset'] = float(value)
+        self.entries[key]['offset_entry'].delete(0, tk.END)
+        self.entries[key]['offset_entry'].insert(0, str(value))
+
+    def update_mul_from_entry(self, key, value):
+        try:
+            float_value = float(value)
+            self.update_mul(key, float_value)
+        except ValueError:
+            messagebox.showwarning("Invalid Input", "Please enter a valid float value for 'mul'.")
+
+    def update_offset_from_entry(self, key, value):
+        try:
+            float_value = float(value)
+            self.update_offset(key, float_value)
+        except ValueError:
+            messagebox.showwarning("Invalid Input", "Please enter a valid float value for 'offset'.")
+
+    def run_save(self):
+        # Start the saving process in a new thread
+        threading.Thread(target=self.save, daemon=True).start()
+
+    def save(self):
+        # Simulate a heavy computation or saving process
+        time.sleep(2)  # Replace this with your actual save/compute operation
+        print("Saved tuning parameters:", self.params.tuning)
+        self.show_save_message()
+
+    def show_save_message(self):
+        # Schedule a message box to show after saving is done
+        self.root.after(0, lambda: messagebox.showinfo("Save", "Parameters saved successfully!"))
+
+    def on_close(self):
+        self.root.destroy()
+
+
+
 
 cap = 0
 model_path = "./face/face_landmarker.task"
-MPface = MPFace(capture=cap, modelpath=model_path, tuning_path="./param_tuning.jsonc", fps=90)
 
 try:
-    MPface.run()
+    MPface = MPFace(capture=cap, modelpath=model_path, tuning_path="./param_tuning.jsonc", fps=90)
+    # MPface.run()
 except KeyboardInterrupt:
     pass
