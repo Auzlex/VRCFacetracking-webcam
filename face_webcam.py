@@ -3,21 +3,18 @@ from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 from datetime import datetime
 import time
-import zmq
 import numpy as np
 import socket
 
 from pprint import pprint
 import cv2
 import json
+import json5 # handle json docs with comments
 
 
 data = []
 
-# # Create a ZeroMQ context
-# context = zmq.Context()
-# socket = context.socket(zmq.PUB)  # Use a PUSH socket
-# socket.bind("tcp://*:5555")  # Bind to a TCP port
+
 
 
 class TCPSender:
@@ -53,10 +50,9 @@ FaceLandmarkerResult = mp.tasks.vision.FaceLandmarkerResult
 VisionRunningMode = mp.tasks.vision.RunningMode
 
 
-class BlendShape:
-
-    # these require no additional compute
-    mp_unified_translation = {
+class BlendShapeParams:
+    # translation from mediapipe to unified keys
+    unified_mp_translation = {
         # "eyeBlinkLeft": ["aaaaaaaaaaaaaa"], # no equivalent
         # "eyeBlinkRight": ["aaaaaaaaaaaaaa"], # no equivalent
         # "mouthRollLower": ["aaaaaaaaaaaaaa"], # no equivalent
@@ -110,190 +106,83 @@ class BlendShape:
         "mouthLowerDownLeft": ["MouthLowerDownLeft"],
         "mouthLowerDownRight": ["MouthLowerDownRight"],
         "mouthPressLeft": ["MouthPressLeft"],
-        "mouthPressRight": ["MouthPressRight"],
-    }
-
-    mp_multiplier = {
-        "BrowDownLeft" : 2,
-        "BrowDownRight" : 2,
-        "BrowInnerUpRight": 1,
-        "BrowInnerUpLeft": 1,
-        "BrowOuterUpLeft": 1,
-        "BrowOuterUpRight": 1,
-        "CheekPuff": 1,
-        "CheekSquintLeft" : 1,
-        "CheekSquintRight" : 1,
-        "EyeLookDownLeft": 1,
-        "EyeLookDownRight": 1,
-        "EyeLookInLeft": 1, 
-        "EyeLookInRight": 1,
-        "EyeLookOutLeft": 1, 
-        "EyeLookOutRight": 1,
-        "EyeLookUpLeft": 1.6,
-        "EyeLookUpRight": 1.6,
-        "EyeSquintLeft": 1,
-        "EyeSquintRight": 1,
-        "EyeWideLeft": 5, # this can be much much lower but because glasses it is high
-        "EyeWideRight": 5, # about 5-10 seems to do the trick wo glassses
-        "JawForward": 2,
-        "JawLeft": 5,
-        "JawOpen": 1,
-        "JawRight": 5,
-        "MouthClosed": 2,
-        "MouthDimpleLeft": 6,
-        "MouthDimpleRight": 10,
-        "MouthFrownLeft": 5,
-        "MouthFrownRight": 5,
-        "LipFunnel" : 1.8,
-        "MouthLeft": 1.5,
-        "MouthRight": 1.5,
-        "LipPucker": 0.7,
-        "MouthSmileLeft": 3,
-        "MouthSmileRight": 3,
-        "MouthStretchLeft": 5,
-        "MouthStretchRight": 5,
-        "NoseSneerLeft": 4,
-        "NoseSneerRight": 4,
-        "MouthUpperUpLeft": 1,
-        "MouthUpperUpRight": 1,
-        "MouthLowerDownLeft": 10,
-        "MouthLowerDownRight": 10,
-        "MouthPressLeft": 5,
-        "MouthPressRight": 5,
-    }
-
-    mp_offset = {
-        "BrowDownLeft" : 0.1,
-        "BrowDownRight" : 0.1,
-        "BrowInnerUpRight": 0,
-        "BrowInnerUpLeft": 0,
-        "BrowOuterUpLeft": 0,
-        "BrowOuterUpRight": 0,
-        "CheekPuff": 0,
-        "CheekSquintLeft" : 0, 
-        "CheekSquintRight" : 0, 
-        "EyeLookDownLeft": 0,
-        "EyeLookDownRight": 0,
-        "EyeLookInLeft": 0, 
-        "EyeLookInRight": 0,
-        "EyeLookOutLeft": 0, 
-        "EyeLookOutRight": 0, 
-        "EyeLookUpLeft": 0,
-        "EyeLookUpRight": 0,
-        "EyeSquintLeft": 0,
-        "EyeSquintRight": 0,
-        "EyeWideLeft": 0,
-        "EyeWideRight": 0,
-        "JawForward": 0.25,
-        "JawLeft": 0,
-        "JawOpen": 0,
-        "JawRight": 0,
-        "MouthClosed": 0,
-        "MouthDimpleLeft": 0,
-        "MouthDimpleRight": 0,
-        "MouthFrownLeft": 0,
-        "MouthFrownRight": 0,
-        "LipFunnel" : 0,
-        "MouthLeft": 0,
-        "MouthRight": 0,
-        "LipPucker": 0,
-        "MouthSmileLeft": 0,
-        "MouthSmileRight": 0,
-        "MouthStretchLeft": 0,
-        "MouthStretchRight": 0,
-        "NoseSneerLeft": 0,
-        "NoseSneerRight": 0,
-        "MouthUpperUpLeft": 0,
-        "MouthUpperUpRight": 0,
-        "MouthLowerDownLeft": 0,
-        "MouthLowerDownRight": 0,
-        "MouthPressLeft": 0,
-        "MouthPressRight": 0,
-
+        "mouthPressRight": ["MouthPressRight"],        
     }
 
 
-    mp_bound = {
-        "BrowDownLeft" : [0,1],
-        "BrowDownRight" : [0,1],
-        "BrowInnerUpRight": [0,1],
-        "BrowInnerUpLeft": [0,1],
-        "BrowOuterUpLeft": [0,1],
-        "BrowOuterUpRight": [0,1],
-        "CheekPuff": [0,1], 
-        "CheekSquintLeft" : [0,1], 
-        "CheekSquintRight" : [0,1], 
-        "EyeLookDownLeft": [0,1],
-        "EyeLookDownRight": [0,1],
-        "EyeLookInLeft": [0,1], 
-        "EyeLookInRight": [0,1],
-        "EyeLookOutLeft": [0,1], 
-        "EyeLookOutRight": [0,1],
-        "EyeLookUpLeft": [0,1],
-        "EyeLookUpRight": [0,1],
-        "EyeSquintLeft": [0,1],
-        "EyeSquintRight": [0,1],
-        "EyeWideLeft": [0,1],
-        "EyeWideRight": [0,1],
-        "JawForward": [0,1],
-        "JawLeft": [0,1],
-        "JawOpen": [0,1],
-        "JawRight": [0,1],
-        "MouthClosed": [0,1],
-        "MouthDimpleLeft": [0,1],
-        "MouthDimpleRight": [0,1],
-        "MouthFrownLeft": [0,1],
-        "MouthFrownRight": [0,1],
-        "LipFunnel" : [0,1],
-        "MouthLeft": [0,1],
-        "MouthRight": [0,1],
-        "LipPucker": [0,1], 
-        "MouthSmileLeft": [0,1],
-        "MouthSmileRight": [0,1],
-        "MouthStretchLeft": [0,1],
-        "MouthStretchRight": [0,1],
-        "NoseSneerLeft": [0,1],
-        "NoseSneerRight": [0,1],
-        "MouthUpperUpLeft": [0,1],
-        "MouthUpperUpRight": [0,1],
-        "MouthLowerDownLeft": [0,1],
-        "MouthLowerDownRight": [0,1],
-        "MouthPressLeft": [0,1],
-        "MouthPressRight": [0,1],
+    path = ""
+    tuning = {} 
+    params = {}
 
-    }
+    def __init__(self, tuning_params_path: str) -> None:
+        self.path = tuning_params_path
+        self.tuning = json5.load(open(tuning_params_path, "r"))
 
 
-    def bound(self, low, high, value):
-        return max(low, min(high, value))
-
+    def bound(self, low: float, high: float, value: float) -> float:
+        return max(low, min(high, value))   
     
+    def min(self, category: str)-> float:
+        return self.tuning[category]["min"]
 
+    def max(self, category: str)-> float:
+        return self.tuning[category]["max"]
+    
+    def mul(self, category: str)-> float:
+        return self.tuning[category]["mul"]
+    
+    def offset(self, category: str)-> float:
+        return self.tuning[category]["offset"]
+    
+    def custom_funct(self, category: str)-> str:
+        return self.tuning[category]["cfunct"]
+    
+    def call_custom_funct(self, cfunct: str, value: float)-> float:
+        func = locals().get(cfunct)
+        if callable(func):
+            return func(value)
+        else:
+            return 0
+    
+    
+    def update(self, result: FaceLandmarkerResult) -> dict:
+        # process LFMR for easy access
+        result_dict = {}
+        for param in result.face_blendshapes[0]:
+            result_dict[param.category_name] = param.score
 
-
-    def __init__(self, init_obj: FaceLandmarkerResult):
-        self.categories = {}
-        categories = init_obj.face_blendshapes[0]
-        for category in categories:
-            self.categories[category.category_name] = category.score
+        # some mp keys need to be mapped to multiple unified keys
+        # might do the reverse to remove a single loop for readability
+        # check if a custom function is needed for processing
+        # if not, use provided multipliers and offsets
+        for mpk, uv in self.unified_mp_translation.items(): 
+            for category in uv:
+                cfunct = self.custom_funct(category)
+                if not cfunct:
+                    self.params[category] = self.bound(
+                        self.min(category), 
+                        self.max(category), 
+                        self.mul(category) * result_dict[mpk] + self.offset(category)
+                    )
+                else:
+                    self.params[category] = self.call_custom_funct(cfunct, mpk)
+        return self.serialize()
 
     def serialize(self):
-        translated = {}
-        for key in self.mp_unified_translation.keys():
-            categories = self.mp_unified_translation[key]
-            for cat in categories:
-                translated[cat] = self.bound(
-                    self.mp_bound.get(cat, [0,1])[0],
-                    self.mp_bound.get(cat, [0,1])[1],
-                    self.categories[key] * self.mp_multiplier.get(cat, 1) + self.mp_offset.get(cat, 0)
-                    )
+        return json.dumps(self.params)
+    
+    def update_tuning(self):
+        self.tuning = json5.load(open(self.path, "r"))
 
-        return json.dumps(translated)
+
+
+
+
 
 
 class MPFace:
 
-    def __init__(self, capture: int, modelpath: str, fps=60):
+    def __init__(self, capture: int, modelpath: str, tuning_path: str, fps=60):
         self.capture = cv2.VideoCapture(capture) # opencv webcam feed
         self.model_path = modelpath
         self.fps = fps
@@ -304,11 +193,12 @@ class MPFace:
             output_face_blendshapes=True,
             )
         self.landmarker = FaceLandmarker.create_from_options(self.options)
+        self.params = BlendShapeParams(tuning_path)
 
     def process(self, result: FaceLandmarkerResult, output_image: mp.Image, timestamp_ms: int):
         try:
             if result.face_blendshapes:
-                data = BlendShape(result).serialize()
+                data = self.params.update(result)
                 sender.connect()
                 sender.send_message(data)
                 sender.disconnect()
@@ -349,13 +239,9 @@ class MPFace:
 
 cap = 0
 model_path = "./face/face_landmarker.task"
-MPface = MPFace(capture=cap, modelpath=model_path, fps=90)
+MPface = MPFace(capture=cap, modelpath=model_path, tuning_path="./param_tuning.jsonc", fps=90)
 
 try:
     MPface.run()
 except KeyboardInterrupt:
     pass
-
-# socket.close()
-# context.term()
-# context.destroy()
