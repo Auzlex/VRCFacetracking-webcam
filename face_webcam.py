@@ -70,22 +70,22 @@ class BlendShapeParams:
         "cheekPuff": ["CheekPuff"], # inacurate detection
         "cheekSquintLeft": ["CheekSquintLeft"],  # inacurate detection
         "cheekSquintRight": ["CheekSquintRight"],  # inacurate detection
-        "eyeLookDownLeft": ["EyeLookDownLeft"],
-        "eyeLookDownRight": ["EyeLookDownRight"],
         "eyeLookInLeft": ["EyeLookInRight"], # intentional
         "eyeLookInRight": ["EyeLookInLeft"], #
         "eyeLookOutLeft": ["EyeLookOutRight"],# 
         "eyeLookOutRight": ["EyeLookOutLeft"], # intentional
         "eyeLookUpLeft": ["EyeLookUpLeft"],
         "eyeLookUpRight": ["EyeLookUpRight"],
+        "eyeLookDownLeft": ["EyeLookDownLeft"],
+        "eyeLookDownRight": ["EyeLookDownRight"],
         "eyeSquintLeft": ["EyeSquintLeft"],
         "eyeSquintRight": ["EyeSquintRight"],
         "eyeWideLeft": ["EyeWideLeft"],
         "eyeWideRight": ["EyeWideRight"],
         "jawForward": ["JawForward"], # inacurate detection
-        "jawLeft": ["JawLeft"], # inacurate detection
+        "jawLeft": ["JawRight"], # inacurate detection
         "jawOpen": ["JawOpen"],
-        "jawRight": ["JawRight"], # inacurate detection
+        "jawRight": ["JawLeft"], # inacurate detection
         "mouthClose": ["MouthClosed"],
         "mouthDimpleLeft": ["MouthDimpleLeft"], 
         "mouthDimpleRight": ["MouthDimpleRight"],
@@ -93,8 +93,6 @@ class BlendShapeParams:
         "mouthFrownRight": ["MouthFrownRight"],
         "mouthFunnel": ["LipFunnel"],
         "mouthLeft": ["MouthLeft"], 
-
-        # some mouth stuff needs to be inverted
         "mouthRight": ["MouthRight"], 
         "mouthPucker": ["LipPucker"],
         "mouthSmileLeft": ["MouthSmileLeft"],
@@ -103,7 +101,6 @@ class BlendShapeParams:
         "mouthStretchRight": ["MouthStretchRight"],
         "noseSneerLeft": ["NoseSneerLeft"], # inmacurate detection
         "noseSneerRight": ["NoseSneerRight"], # inmacurate detection
-
         "mouthUpperUpLeft": ["MouthUpperUpLeft"], 
         "mouthUpperUpRight": ["MouthUpperUpRight"], 
         "mouthLowerDownLeft": ["MouthLowerDownLeft"],
