@@ -11,13 +11,10 @@
 3. tune parameters as needed
 
 # Note
-Important to note that VRCFT should be started before face_webcam, otherwise the python script will crash.
-The python program should also be stopped before VRCFT is closed for the same reason
-Also, the save button does nothing besides outputting the parameters in your shell. 
-I tweak them and then copy over the shell output to the `param_tuning.jsonc` file
+Important to note that VRCFT should be started before face_webcam, otherwise the python script will crash. The python program should also be stopped before VRCFT is closed for the same reason.
+Also, the save button does nothing besides outputting the parameters in your shell. I tweak them and then copy over the shell output to the `param_tuning.jsonc` file.
 
 # Issues/TODO
-1. some left/right things are inverted
-2. program crashes if it can't send data to the VRCFT module
-3. save button does not work 
-4. still feels kind of jittery
+1. program crashes if it can't send data to the VRCFT module
+2. save button does not work 
+3. still feels kind of jittery
