@@ -15,38 +15,7 @@ from pprint import pprint
 import cv2
 import json
 import json5 # handle json docs with comments
-
-
-data = []
-
-
-
-
-class TCPSender:
-    def __init__(self, host, port):
-        self.host = host
-        self.port = port
-        self.sock = None
-
-    def connect(self):
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.connect((self.host, self.port))
-
-    def send_message(self, message_dict):
-        try:
-            message_json = json.dumps(message_dict)
-            message_bytes = (message_json + "\n").encode('utf-8')
-            self.sock.sendall(message_bytes)
-        except Exception as e:
-            print(f"Error sending message: {e}")
-
-    def disconnect(self):
-        self.sock.close()
-
-
-sender = TCPSender('localhost', 5555)
-
-
+import time
 
 BaseOptions = mp.tasks.BaseOptions
 FaceLandmarker = mp.tasks.vision.FaceLandmarker
@@ -55,9 +24,51 @@ FaceLandmarkerResult = mp.tasks.vision.FaceLandmarkerResult
 VisionRunningMode = mp.tasks.vision.RunningMode
 
 
+
+
+
+class TCPSender:
+    def __init__(self, host: str, port: int)-> None:
+        self.host = host
+        self.port = port
+        self.sock = None
+
+    def connect(self) -> None:
+        connected = False
+        for i in range(1,100):
+            if not connected:
+                try:
+                    self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    self.sock.connect((self.host, self.port))
+                    connected = True
+                except ConnectionRefusedError as e:
+                    print(f"Error connecting, waiting {5*i} seconds to try again")
+                    time.sleep(5*i)
+
+                
+
+    def send_message(self, message_dict) -> None:
+        try:
+            message_json = json.dumps(message_dict)
+            message_bytes = (message_json + "\n").encode('utf-8')
+            self.sock.sendall(message_bytes)
+        except Exception as e:
+            print(f"Error sending message: {e}")
+
+    def disconnect(self) -> None:
+        self.sock.close()
+
+
+
+
+
+
+
+
+
 class BlendShapeParams:
     # translation from mediapipe to unified keys
-    unified_mp_translation = {
+    unified_mp_translation : dict[str, list[str]]= {
         # "eyeBlinkLeft": ["aaaaaaaaaaaaaa"], # no equivalent
         # "eyeBlinkRight": ["aaaaaaaaaaaaaa"], # no equivalent
         # "mouthRollLower": ["aaaaaaaaaaaaaa"], # no equivalent
@@ -167,7 +178,7 @@ class BlendShapeParams:
 
     
     
-    def update(self, result: FaceLandmarkerResult) -> dict:
+    def update(self, result: FaceLandmarkerResult) -> str:
         # process LFMR for easy access
         result_dict = {}
         for param in result.face_blendshapes[0]:
@@ -188,13 +199,12 @@ class BlendShapeParams:
                     )
                 else:
                     self.params[category] = self.call_custom_funct(cfunct, result_dict[mpk])
-                    print(f"using custom function {cfunct} for {result_dict[mpk]}: { self.call_custom_funct(cfunct, result_dict[mpk])}")
         return self.serialize()
 
-    def serialize(self):
+    def serialize(self) -> str:
         return json.dumps(self.params)
     
-    def update_tuning(self):
+    def update_tuning(self) -> None:
         self.tuning = json5.load(open(self.path, "r"))
 
 
@@ -205,7 +215,8 @@ class BlendShapeParams:
 
 class MPFace:
 
-    def __init__(self, capture: int, modelpath: str, tuning_path: str, fps=60):
+    def __init__(self, capture: int, modelpath: str, tuning_path: str, fps: int=60) -> None:
+        self.sender = TCPSender('localhost', 5555)
         self.capture = cv2.VideoCapture(capture) # opencv webcam feed
         self.model_path = modelpath
         self.fps = fps
@@ -213,32 +224,32 @@ class MPFace:
             base_options=BaseOptions(model_asset_path=modelpath),
             running_mode=VisionRunningMode.LIVE_STREAM,
             result_callback=self.process,
-            output_face_blendshapes=True,
+            output_face_blendshapes=True
             )
         self.landmarker = FaceLandmarker.create_from_options(self.options)
         self.params = BlendShapeParams(tuning_path)
 
         self.root = tk.Tk()
         self.root.title("Blend Shape Parameters")
+        self.exit = False
 
         # Start background work in a thread
         threading.Thread(target=self.run, daemon=True).start()
 
         self.create_interface()
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
-        self.root.mainloop()
-
-    def process(self, result: FaceLandmarkerResult, output_image: mp.Image, timestamp_ms: int):
         try:
-            if result.face_blendshapes:
-                data = self.params.update(result)
-                sender.connect()
-                sender.send_message(data)
-                sender.disconnect()
-                print("sent values")
-        except KeyboardInterrupt as e:
-            print(e)
-            return False
+            self.root.mainloop()
+        except KeyboardInterrupt:
+            self.on_close()
+            return
+
+    def process(self, result: FaceLandmarkerResult, output_image: mp.Image, timestamp_ms: int) -> None:
+        if result.face_blendshapes:
+            data = self.params.update(result)
+            self.sender.connect()
+            self.sender.send_message(data)
+            self.sender.disconnect()
         
 
     def gen_mp_frame(self, capture: cv2.VideoCapture):
@@ -259,17 +270,16 @@ class MPFace:
         mp_frame = mp.Image(image_format=mp.ImageFormat.SRGB, data=square_frame)
         return mp_frame
 
-    def run(self):
-        with self.landmarker as landmarker:
-            while True:
-                try:
-                    landmarker.detect_async(self.gen_mp_frame(self.capture), int(time.time() * 1000))
-                    time.sleep(1 / self.fps)
+    def run(self) -> None:
+        try:
+            with self.landmarker as landmarker:
+                while not self.exit:
+                        landmarker.detect_async(self.gen_mp_frame(self.capture), int(time.time() * 1000))
+                        time.sleep(1 / self.fps) 
+        except KeyboardInterrupt:
+            return None
                     
-                except KeyboardInterrupt:
-                    break
-                    
-    def create_interface(self):
+    def create_interface(self) -> None:
         # Create a frame for the parameters
         param_frame = tk.Frame(self.root)
         param_frame.pack(pady=10, padx=10)
@@ -322,45 +332,45 @@ class MPFace:
         save_button = tk.Button(self.root, text="Save[does not actually save them]", command=self.run_save)
         save_button.pack(pady=10)
 
-    def update_mul(self, key, value):
+    def update_mul(self, key: str, value: float) -> None:
         self.params.tuning[key]['mul'] = float(value)
         self.entries[key]['mul_entry'].delete(0, tk.END)
         self.entries[key]['mul_entry'].insert(0, str(value))
 
-    def update_offset(self, key, value):
+    def update_offset(self, key: str, value: float) -> None:
         self.params.tuning[key]['offset'] = float(value)
         self.entries[key]['offset_entry'].delete(0, tk.END)
         self.entries[key]['offset_entry'].insert(0, str(value))
 
-    def update_mul_from_entry(self, key, value):
+    def update_mul_from_entry(self, key: str, value: str)-> None:
         try:
             float_value = float(value)
             self.update_mul(key, float_value)
         except ValueError:
             messagebox.showwarning("Invalid Input", "Please enter a valid float value for 'mul'.")
 
-    def update_offset_from_entry(self, key, value):
+    def update_offset_from_entry(self, key: str, value: str)-> None:
         try:
             float_value = float(value)
             self.update_offset(key, float_value)
         except ValueError:
             messagebox.showwarning("Invalid Input", "Please enter a valid float value for 'offset'.")
 
-    def run_save(self):
+    def run_save(self)-> None:
         # Start the saving process in a new thread
         threading.Thread(target=self.save, daemon=True).start()
 
-    def save(self):
-        # Simulate a heavy computation or saving process
-        time.sleep(2)  # Replace this with your actual save/compute operation
+    def save(self)-> None:
         print("Saved tuning parameters:", self.params.tuning)
         self.show_save_message()
 
-    def show_save_message(self):
+    def show_save_message(self)-> None:
         # Schedule a message box to show after saving is done
         self.root.after(0, lambda: messagebox.showinfo("Save", "Parameters saved successfully!"))
 
-    def on_close(self):
+    def on_close(self)-> None:
+        print("Exiting...")
+        self.exit = True
         self.root.destroy()
 
 
@@ -368,9 +378,4 @@ class MPFace:
 
 cap = 0
 model_path = "./face/face_landmarker.task"
-
-try:
-    MPface = MPFace(capture=cap, modelpath=model_path, tuning_path="./param_tuning.jsonc", fps=90)
-    # MPface.run()
-except KeyboardInterrupt:
-    pass
+MPface = MPFace(capture=cap, modelpath=model_path, tuning_path="./param_tuning.jsonc", fps=100)
