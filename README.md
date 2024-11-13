@@ -19,6 +19,5 @@ I tweak them and then copy over the shell output to the `param_tuning.jsonc` fil
 # Issues/TODO
 1. some left/right things are inverted
 2. program crashes if it can't send data to the VRCFT module
-3. eye opening is kinda wonky
-4. save button does not work 
-5. still feels kind of jittery
+3. save button does not work 
+4. still feels kind of jittery

@@ -8,6 +8,8 @@ import socket
 import threading
 import tkinter as tk
 from tkinter import messagebox
+import math
+from operator import methodcaller
 
 from pprint import pprint
 import cv2
@@ -80,8 +82,8 @@ class BlendShapeParams:
         "eyeLookDownRight": ["EyeLookDownRight"],
         "eyeSquintLeft": ["EyeSquintLeft"],
         "eyeSquintRight": ["EyeSquintRight"],
-        "eyeWideLeft": ["EyeWideLeft"],
-        "eyeWideRight": ["EyeWideRight"],
+        "eyeWideRight": ["EyeWideLeft", "EyeOpennessLeft"], # intentional
+        "eyeWideLeft": ["EyeWideRight", "EyeOpennessRight"], # intentional
         "jawForward": ["JawForward"], # inacurate detection
         "jawLeft": ["JawRight"], # inacurate detection
         "jawOpen": ["JawOpen"],
@@ -108,6 +110,26 @@ class BlendShapeParams:
         "mouthPressLeft": ["MouthPressLeft"],
         "mouthPressRight": ["MouthPressRight"],        
     }
+
+    def eye_openness_left(self, value: float)-> float:
+        a = self.mul("EyeOpennessLeft")
+        b = self.offset("EyeOpennessLeft")
+
+        return self.bound(
+                        self.min("EyeOpennessLeft"),
+                        self.max("EyeOpennessLeft"),
+                          a * math.pow(value, 1/b)
+                          )
+    
+    def eye_openess_right(self, value: float)-> float:
+        a = self.mul("EyeOpennessRight")
+        b = self.offset("EyeOpennessRight")
+        return self.bound(
+                        self.min("EyeOpennessRight"),
+                        self.max("EyeOpennessRight"),
+                          a * math.pow(value, 1/b)
+                        )
+
 
 
     params = {}
@@ -136,11 +158,13 @@ class BlendShapeParams:
         return self.tuning[category]["cfunct"]
     
     def call_custom_funct(self, cfunct: str, value: float)-> float:
-        func = locals().get(cfunct)
-        if callable(func):
-            return func(value)
+        f = getattr(self, cfunct, None)
+
+        if callable(f):
+            return f(value)
         else:
-            return 0
+            return value
+
     
     
     def update(self, result: FaceLandmarkerResult) -> dict:
@@ -163,7 +187,8 @@ class BlendShapeParams:
                         self.mul(category) * result_dict[mpk] + self.offset(category)
                     )
                 else:
-                    self.params[category] = self.call_custom_funct(cfunct, mpk)
+                    self.params[category] = self.call_custom_funct(cfunct, result_dict[mpk])
+                    print(f"using custom function {cfunct} for {result_dict[mpk]}: { self.call_custom_funct(cfunct, result_dict[mpk])}")
         return self.serialize()
 
     def serialize(self):
@@ -211,7 +236,7 @@ class MPFace:
                 sender.send_message(data)
                 sender.disconnect()
                 print("sent values")
-        except Exception as e:
+        except KeyboardInterrupt as e:
             print(e)
             return False
         
