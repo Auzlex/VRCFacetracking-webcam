@@ -31,35 +31,47 @@ VisionRunningMode = mp.tasks.vision.RunningMode
 
 
 class TCPSender:
-    def __init__(self, host: str, port: int)-> None:
+    def __init__(self, host: str, port: int, callback)-> None:
+        '''
+        host: host to connect to
+        port: port to connect to
+        callback: function to call when it can't send messages anymore
+        '''
         self.host = host
         self.port = port
         self.sock = None
+        self.connected = False
+        self.callback = callback
 
     def connect(self) -> None:
-        connected = False
-        for i in range(1,100):
-            if not connected:
+        
+        for i in range(1,20):
+            if not self.connected:
                 try:
                     self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                     self.sock.connect((self.host, self.port))
-                    connected = True
+                    self.connected = True
                 except ConnectionRefusedError as e:
-                    print(f"Error connecting, waiting {5*i} seconds to try again")
-                    time.sleep(5*i)
+                    print(f"Error connecting to VRCFT, waiting {2*i} seconds to try again")
+                    time.sleep(i)
+        if self.connected:
+            print(f"Connected to VRCFT")
 
-                
+
 
     def send_message(self, message_dict) -> None:
-        try:
             message_json = json.dumps(message_dict)
             message_bytes = (message_json + "\n").encode('utf-8')
-            self.sock.sendall(message_bytes)
-        except Exception as e:
-            print(f"Error sending message: {e}")
+            try:
+                self.sock.sendall(message_bytes)
+            except (ConnectionResetError, ConnectionAbortedError, OSError) as e:
+                print("Connection to VRCFT lost. Likely that VRFT was closed.")
+                print("I have no idea how to handle this yet, so I'm exiting")
+                self.callback()
 
     def disconnect(self) -> None:
         self.sock.close()
+        self.connected = False
 
 
 
@@ -306,7 +318,7 @@ class BlendShapeParams:
 class MPFace:
 
     def __init__(self, capture: int, modelpath: str, tuning_path: str, fps: int=60) -> None:
-        self.sender = TCPSender('localhost', 5555)
+        
         self.capture = cv2.VideoCapture(capture) # opencv webcam feed
         self.model_path = modelpath
         self.fps = fps
@@ -323,11 +335,14 @@ class MPFace:
         self.root.title("Blend Shape Parameters")
         self.exit = False
 
-        # Start background work in a thread
-        threading.Thread(target=self.run, daemon=True).start()
+
 
         self.create_interface()
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+        self.sender = TCPSender('localhost', 5555, self.on_close)
+        self.sender.connect()
+        threading.Thread(target=self.run, daemon=True).start()
+        
         try:
             self.root.mainloop()
         except KeyboardInterrupt:
@@ -337,9 +352,8 @@ class MPFace:
     def process(self, result: FaceLandmarkerResult, output_image: mp.Image, timestamp_ms: int) -> None:
         if result.face_blendshapes:
             data = self.params.update(result)
-            self.sender.connect()
             self.sender.send_message(data)
-            self.sender.disconnect()
+            
         
 
     def gen_mp_frame(self, capture: cv2.VideoCapture):
@@ -462,11 +476,12 @@ class MPFace:
         self.params.print_stats()
         print("Exiting...")
         self.exit = True
+        self.sender.disconnect()
         self.root.destroy()
 
 
 
-
+# change this line below.
 cap = 0
 model_path = "./face/face_landmarker.task"
 MPface = MPFace(capture=cap, modelpath=model_path, tuning_path="./param_tuning.jsonc", fps=100)
