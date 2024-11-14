@@ -15,6 +15,4 @@ Important to note that VRCFT should be started before face_webcam, otherwise the
 Also, the save button does nothing besides outputting the parameters in your shell. I tweak them and then copy over the shell output to the `param_tuning.jsonc` file.
 
 # Issues/TODO
-1. program crashes if it can't send data to the VRCFT module
-2. save button does not work 
-3. still feels kind of jittery
+1. program crashes if it can't send data to the VRCFT module (if the python program starts before VRCFT or if VRCFT exits before the python program stops)

@@ -12,6 +12,7 @@ import math
 import statistics
 import collections
 import copy
+import io
 
 from pprint import pprint
 import cv2
@@ -446,11 +447,11 @@ class MPFace:
             messagebox.showwarning("Invalid Input", "Please enter a valid float value for 'offset'.")
 
     def run_save(self)-> None:
-        # Start the saving process in a new thread
-        threading.Thread(target=self.save, daemon=True).start()
-
-    def save(self)-> None:
-        print("Saved tuning parameters:", self.params.tuning)
+        output = io.StringIO()
+        pprint(self.params.tuning, stream=output, width=120)
+        pretty_output = output.getvalue().replace("'", '"')
+        with open("./param_tuning.jsonc", "w") as f:
+            f.write(pretty_output)        
         self.show_save_message()
 
     def show_save_message(self)-> None:
