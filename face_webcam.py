@@ -9,7 +9,9 @@ import threading
 import tkinter as tk
 from tkinter import messagebox
 import math
-from operator import methodcaller
+import statistics
+import collections
+import copy
 
 from pprint import pprint
 import cv2
@@ -144,6 +146,8 @@ class BlendShapeParams:
 
 
     params = {}
+    last_frame = {}
+    stats = collections.defaultdict(list)
 
     def __init__(self, tuning_params_path: str) -> None:
         self.path = tuning_params_path
@@ -177,8 +181,10 @@ class BlendShapeParams:
             return value
 
     
-    
-    def update(self, result: FaceLandmarkerResult) -> str:
+    def process_raw_params(self, result: FaceLandmarkerResult)-> None:
+        '''
+        process FaceLandmarkerResult based on tuning parameters
+        '''
         # process LFMR for easy access
         result_dict = {}
         for param in result.face_blendshapes[0]:
@@ -199,13 +205,96 @@ class BlendShapeParams:
                     )
                 else:
                     self.params[category] = self.call_custom_funct(cfunct, result_dict[mpk])
+
+
+    def EMA(self, M: int = 4) -> dict[str, float]:
+        '''
+        Exponential Moving Average
+        processes tuned parameters to smooth them over
+        M : int is the smoothing period
+        '''
+
+        alpha = 2 / (M + 1)
+
+        if not self.last_frame:
+            self.last_frame = self.params
+            return self.last_frame
+        else:
+            current_ema = self.last_frame
+        
+        new_ema = {}
+        # self.param = new values
+        for k, v in self.params.items():
+            new_ema[k] = alpha * v + (1 - alpha) * current_ema[k]
+
+        self.last_frame = new_ema
+        return self.last_frame
+    
+
+    def treshold(self, old: dict[str, float], mul: int = 2):
+        '''
+        if the change in param is less than the (mul * treshold), set it to the old value to reduce noise
+        treshold is the experimentally determined standard deviation of the change in params between frames
+        old: dict[str, float] is the previous frame
+        mul: int is the the multiplier
+        '''
+        tresholds = {"EyeLookInRight": 0.0119,
+                   "EyeLookInLeft": 0.0140,
+                   "EyeLookOutRight": 0.0128,
+                   "EyeLookOutLeft": 0.0112,
+                   "EyeWideLeft": 0.0071,
+                   "EyeWideRight": 0.0050,
+                   "EyeOpennessLeft": 0.0237,
+                   "EyeOpennessRight": 0.0225,
+        }
+
+        for k, v in tresholds.items():
+            if old.get(k) and self.last_frame.get(k) and abs(self.last_frame[k] - old[k]) < v* mul:
+                self.last_frame[k] = old[k]
+    
+
+    def collect_stats(self, old: dict[str, float], new: dict[str, float])-> None:
+
+        tracked = ["EyeLookInRight",
+                   "EyeLookInLeft",
+                   "EyeLookOutRight",
+                   "EyeLookOutLeft",
+                   "EyeWideLeft",
+                   "EyeWideRight",
+                   "EyeOpennessLeft",
+                   "EyeOpennessRight",
+                   ]
+
+        for k in tracked:
+            try:
+                self.stats[k].append(new[k] - old[k])
+            except KeyError:
+                pass
+            
+            
+
+    def print_stats(self)-> None:
+        for k, v in self.stats.items():
+            mean = statistics.fmean(v)
+            std = statistics.stdev(v)
+            print(f"{k}: {mean:.4f} +/- {std:.4f}")
+
+    
+    def update(self, result: FaceLandmarkerResult) -> str:
+        old = copy.deepcopy(self.last_frame)
+        self.process_raw_params(result)
+        self.EMA()
+        self.treshold(old)
+        self.collect_stats(old, self.last_frame)
         return self.serialize()
 
     def serialize(self) -> str:
-        return json.dumps(self.params)
+        return json.dumps(self.last_frame)
     
     def update_tuning(self) -> None:
         self.tuning = json5.load(open(self.path, "r"))
+    
+
 
 
 
@@ -369,6 +458,7 @@ class MPFace:
         self.root.after(0, lambda: messagebox.showinfo("Save", "Parameters saved successfully!"))
 
     def on_close(self)-> None:
+        self.params.print_stats()
         print("Exiting...")
         self.exit = True
         self.root.destroy()
