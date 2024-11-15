@@ -13,19 +13,23 @@ To get started with the VRChat Face Tracking Module, make sure you have the foll
    ```
 3. **VRC Face Tracking Module**: You can download the VRC Face Tracking module from [this link](https://github.com/TinyAtoms/VRCFaceTracking-MPmodule).
 
+
 # Running the Program
 Follow these steps to run the face tracking program:
-
-1. **Start VRCFT**: Launch the VRC Face Tracking (VRCFT) application.
-2. **Run the Script**: Execute the following command in your terminal or command prompt:
+1. **Clone this repository**: `git clone https://github.com/TinyAtoms/VRCFacetracking-webcam.git`
+2. **Start VRCFT**: Launch the VRC Face Tracking (VRCFT) application.
+3. **Run the Script**: Execute the following command in your terminal or command prompt:
    ```
    python face_webcam.py
    ```
-3. **Adjust Parameters**: Feel free to tweak the parameters in the script as needed for your setup.
-4. **Troubleshooting**: If you encounter an error like `ValueError: Please provide 'image_format' with 'data'.`, you may need to modify the line `cap=0` in the script. Try setting it to `1`, `2`, or another appropriate value.
+4. **Adjust Parameters**: Feel free to tweak the parameters in the script as needed for your setup.
+5. **Troubleshooting**: If you encounter an error like `ValueError: Please provide 'image_format' with 'data'.`, you may need to modify the line `cap=0` in the script. Try setting it to `1`, `2`, or another appropriate value.
 
 # Known Issues
-1. **Closing Interaction**: Please note that closing VRCFT will also terminate this script.
+1. **Closing VRCFT**: Please note that closing VRCFT will also terminate this script.
+2. **Eye Tracking**: Tracking how open your eyes are is kind of bad for people wearing glasses
+
+
 
 # Tuning Parameters
 Here are some guidelines to help you tune the performance. This may or may not be needed, as the current parameters have been set to my particular setup, which may be fine for most people.
