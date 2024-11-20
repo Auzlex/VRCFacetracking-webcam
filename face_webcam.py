@@ -335,6 +335,8 @@ class BlendShapeParams:
     def update_tuning(self) -> None:
         self.tuning = json.load(open(self.path, "r"))
 
+# print command to diff file with last commit
+# git diff --name-only HEAD^
 
 class MPFace:
 
@@ -498,11 +500,16 @@ class MPFace:
             mul_entry = tk.Entry(frame, width=10)
             mul_entry.insert(0, str(values["mul"]))
             mul_entry.pack(side=tk.LEFT)
+            mul_entry.bind("<Return>", lambda event, k=key: self.update_mul_from_entry(k, mul_entry.get()))
+            mul_entry.bind("<KP_Enter>", lambda event, key=key, e=mul_entry: self.update_mul_from_entry(key, e.get()))
+            mul_entry.bind("<FocusOut>", lambda event, key=key, e=mul_entry: self.update_mul_from_entry(key, e.get()))
 
             offset_entry = tk.Entry(frame, width=10)
             offset_entry.insert(0, str(values["offset"]))
             offset_entry.pack(side=tk.LEFT)
-
+            offset_entry.bind("<Return>", lambda event, key=key: self.update_offset_from_entry(key, offset_entry.get()),)
+            offset_entry.bind("<KP_Enter>", lambda event, key=key, e=mul_entry: self.update_offset_from_entry(key, e.get()))
+            offset_entry.bind("<FocusOut>", lambda event, key=key, e=mul_entry: self.update_offset_from_entry(key, e.get()))
             self.entries[key] = {"mul_entry": mul_entry, "offset_entry": offset_entry}
 
         save_button = tk.Button(
