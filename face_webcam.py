@@ -9,6 +9,7 @@ import io
 import time
 from pprint import pprint
 import json
+from PIL import Image, ImageTk
 
 import mediapipe as mp
 import cv2
@@ -338,6 +339,7 @@ class BlendShapeParams:
 class MPFace:
 
     def __init__(self, capture: int, modelpath: str, tuning_path: str, fps: int = 60) -> None:
+        self.capture_device_id = capture
         self.capture = cv2.VideoCapture(capture)  # opencv webcam feed
         self.model_path = modelpath
         self.fps = fps
@@ -355,16 +357,58 @@ class MPFace:
         self.exit = False
 
         self.create_interface()
+
+        # Frame to hold the camera feed and the entry + button
+        frame = tk.Frame(self.root)
+        frame.pack()
+
+            # Label for MYTEXT
+        text_label = tk.Label(frame, text="Camera device ID")
+        text_label.pack(side=tk.LEFT, pady=10)  # Pack at the top with some padding
+
+        # Entry box for changing the capture device ID
+        self.device_entry = tk.Entry(frame, width=10)
+        self.device_entry.insert(0, str(self.capture_device_id))  # Pre-fill with current device ID
+        self.device_entry.pack(side=tk.LEFT, padx=5)  # Pack on left side
+
+
+        # Change button to call 
+        change_button = tk.Button(frame, text="Change", command=self.change_cam_feed)
+        change_button.pack(side=tk.LEFT, padx=5)
+
+        # Create video feed label
+        self.video_label = tk.Label(frame)
+        self.video_label.pack(side=tk.RIGHT)
+
+        # Create toggle button for tuning parameters
+        self.toggle_button = tk.Button(self.root, text="Show Tuning Options", command=self.toggle_tuning)
+        self.toggle_button.pack(pady=5)
+        
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         self.sender = TCPSender("localhost", 5555, self.on_close)
         self.sender.connect()
+        
         threading.Thread(target=self.run, daemon=True).start()
+        threading.Thread(target=self.gen_tk_feed, daemon=True).start()
 
         try:
             self.root.mainloop()
         except KeyboardInterrupt:
             self.on_close()
             return
+
+    def change_cam_feed(self) -> None:
+        # Example function that retrieves and prints the device ID from the entry box
+        new_device_id = int(self.device_entry.get())
+        print(f"New capture device ID: {new_device_id}")
+        self.capture_device_id = new_device_id
+        self.capture = cv2.VideoCapture(new_device_id)
+        with open("./preferences.json", "r") as f:
+            prefs = json.load(f)
+        with open("./preferences.json", "w") as f:
+            prefs["capture_device"] = new_device_id
+            json.dump(prefs, f)
+        # Here you might want to change the camera source or handle any other logic
 
     def process(self, result: FaceLandmarkerResult, output_image: mp.Image, timestamp_ms: int) -> None:
         if result.face_blendshapes:
@@ -375,6 +419,7 @@ class MPFace:
 
         ret, frame = capture.read()
         if not ret:
+            print("Could not capture frame from webcam. It is likely that the camera id needs to be changed") 
             return
         # cv2.flip(frame, 1)
         # could just specify 1440p and then select midway point as center
@@ -388,6 +433,19 @@ class MPFace:
         square_frame = frame
         mp_frame = mp.Image(image_format=mp.ImageFormat.SRGB, data=square_frame)
         return mp_frame
+    
+    def gen_tk_feed(self):
+        while not self.exit:
+            time.sleep(0.1)
+            ret, frame = self.capture.read()
+            if ret:
+                cv2_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                img = Image.fromarray(cv2_image)
+                imgtk = ImageTk.PhotoImage(image=img)
+                # self.video_label.imgtk = imgtk
+                self.video_label.configure(image=imgtk)
+                self.video_label.image = imgtk
+        
 
     def run(self) -> None:
         try:
@@ -400,15 +458,19 @@ class MPFace:
         except KeyboardInterrupt:
             return None
 
+
     def create_interface(self) -> None:
         # Create a frame for the parameters
-        param_frame = tk.Frame(self.root)
-        param_frame.pack(pady=10, padx=10)
+        self.param_frame = tk.Frame(self.root)
+        self.param_frame.pack(pady=10, padx=10)
+        
+        # Initially hide the tuning parameters frame
+        self.param_frame.pack_forget()
 
         self.entries = {}
 
         # Create a header for mul and offset
-        header_frame = tk.Frame(param_frame)
+        header_frame = tk.Frame(self.param_frame)
         header_frame.pack()
 
         tk.Label(header_frame, text="Parameter").grid(row=0, column=0)
@@ -422,14 +484,12 @@ class MPFace:
         # Create column frames
         column_frames = []
         for col in range(column_count):
-            column_frame = tk.Frame(param_frame)
+            column_frame = tk.Frame(self.param_frame)
             column_frame.pack(side=tk.LEFT, padx=10)
             column_frames.append(column_frame)
 
         for idx, (key, values) in enumerate(self.params.tuning.items()):
-            col_idx = (
-                idx // params_per_column % column_count
-            )  # Determine which column to put the parameter in
+            col_idx = idx // params_per_column % column_count
             frame = tk.Frame(column_frames[col_idx])
             frame.pack(pady=5)
 
@@ -438,39 +498,24 @@ class MPFace:
             mul_entry = tk.Entry(frame, width=10)
             mul_entry.insert(0, str(values["mul"]))
             mul_entry.pack(side=tk.LEFT)
-            mul_entry.bind(
-                "<Return>",
-                lambda event, k=key: self.update_mul_from_entry(k, mul_entry.get()),
-            )
-            mul_entry.bind(
-                "<FocusOut>",
-                lambda event, k=key, e=mul_entry: self.update_mul_from_entry(
-                    k, e.get()
-                ),
-            )
 
             offset_entry = tk.Entry(frame, width=10)
             offset_entry.insert(0, str(values["offset"]))
             offset_entry.pack(side=tk.LEFT)
-            offset_entry.bind(
-                "<Return>",
-                lambda event, k=key: self.update_offset_from_entry(
-                    k, offset_entry.get()
-                ),
-            )
-            offset_entry.bind(
-                "<FocusOut>",
-                lambda event, k=key, e=offset_entry: self.update_offset_from_entry(
-                    k, e.get()
-                ),
-            )
 
             self.entries[key] = {"mul_entry": mul_entry, "offset_entry": offset_entry}
 
         save_button = tk.Button(
-            self.root, text="Save[does not actually save them]", command=self.run_save
+            self.param_frame, text="Save Parameters", command=self.run_save
         )
-        save_button.pack(pady=10)
+        save_button.pack(pady=5)
+
+    def toggle_tuning(self) -> None:
+        if self.param_frame.winfo_ismapped():
+            self.param_frame.pack_forget()
+        else:
+            self.param_frame.pack(pady=10, padx=10)
+
 
     def update_mul(self, key: str, value: float) -> None:
         self.params.tuning[key]["mul"] = float(value)
@@ -523,8 +568,19 @@ class MPFace:
 
 
 # change this line below.
-cap = 0
+
+
+try:
+    prefs = json.load(open("./preferences.json", "r"))
+except FileNotFoundError:
+    prefs = {
+    "capture_device" : 0,
+    "tuning_parameters" : "./param_tuning.jsonc",
+    "fps" : 100
+}
+
 model_path = "./face/face_landmarker.task"
 MPface = MPFace(
-    capture=cap, modelpath=model_path, tuning_path="./param_tuning.jsonc", fps=100
+    capture=prefs["capture_device"], modelpath=model_path, tuning_path=prefs["tuning_parameters"], fps=prefs["fps"]
 )
+
