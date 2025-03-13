@@ -23,69 +23,123 @@ VisionRunningMode = mp.tasks.vision.RunningMode
 
 
 class TCPSender:
-    def __init__(self, host: str, port: int, callback) -> None:
+    def __init__(self, host: str, port: int) -> None:
         """
         host: host to connect to
         port: port to connect to
-        callback: function to call when it can't send messages anymore
         """
         self.host = host
         self.port = port
         self.sock = None
         self.connected = False
-        self.callback = callback
+        self.reconnect_attempts = 0
+        self.max_reconnect_attempts = 5
+        self.reconnect_delay = 1  # Start with 1 second delay
+        self.reconnect_thread = None
+        self.should_reconnect = True
+        self.connection_lock = threading.Lock()  # Add lock for thread safety
+        self.last_connection_time = 0  # Track last successful connection
 
     def connect(self) -> None:
         """
         Connect to the VRCFT server
         it will try to connect for ~15 mins, after which it will exit the program
         """
-
-        for i in range(1, 20):
-            if not self.connected:
+        with self.connection_lock:
+            self.reconnect_attempts = 0
+            self.reconnect_delay = 1
+            
+            while self.reconnect_attempts < self.max_reconnect_attempts and self.should_reconnect:
                 try:
+                    if self.sock:
+                        self.sock.close()
                     self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                     self.sock.connect((self.host, self.port))
                     self.connected = True
+                    self.last_connection_time = time.time()
+                    print(f"Connected to VRCFT")
+                    return
                 except ConnectionRefusedError as e:
-                    print(
-                        f"Error connecting to VRCFT, waiting {5*i} seconds to try again..."
-                    )
-                    time.sleep(i)
-        if self.connected:
-            print(f"Connected to VRCFT")
-        else:
-            print("Failed to connect to VRCFT. Exiting...")
-            self.callback()
+                    print(f"Error connecting to VRCFT, waiting {self.reconnect_delay} seconds to try again...")
+                    time.sleep(self.reconnect_delay)
+                    self.reconnect_attempts += 1
+                    self.reconnect_delay *= 2  # Exponential backoff
+                except Exception as e:
+                    print(f"Unexpected error connecting to VRCFT: {str(e)}")
+                    time.sleep(self.reconnect_delay)
+                    self.reconnect_attempts += 1
+                    self.reconnect_delay *= 2
+
+            if self.should_reconnect:
+                print("Failed to connect to VRCFT after multiple attempts. Will keep trying...")
+                self.start_reconnect_thread()
+
+    def start_reconnect_thread(self) -> None:
+        """
+        Start a background thread to continuously attempt reconnection
+        """
+        if self.reconnect_thread is None or not self.reconnect_thread.is_alive():
+            self.reconnect_thread = threading.Thread(target=self.reconnect_loop, daemon=True)
+            self.reconnect_thread.start()
+
+    def reconnect_loop(self) -> None:
+        """
+        Continuously attempt to reconnect to VRCFT
+        """
+        while self.should_reconnect:
+            with self.connection_lock:
+                try:
+                    if self.sock:
+                        self.sock.close()
+                    self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    self.sock.connect((self.host, self.port))
+                    self.connected = True
+                    self.last_connection_time = time.time()
+                    print(f"Reconnected to VRCFT")
+                except Exception as e:
+                    print(f"Reconnection attempt failed: {str(e)}")
+                    self.connected = False
+                    time.sleep(self.reconnect_delay)
+                    self.reconnect_delay *= 2  # Exponential backoff
+                    if self.reconnect_delay > 30:  # Cap the delay at 30 seconds
+                        self.reconnect_delay = 30
 
     def send_message(self, message_dict) -> None:
         """
         Send a message to the VRCFT server
         message_dict: dictionary to send
         serializes a dictionary to json and sends it away
-        On failure, it exits the program
+        On failure, it will attempt to reconnect
         """
-        message_json = json.dumps(message_dict)
-        message_bytes = (message_json + "\n").encode("utf-8")
-        try:
-            self.sock.sendall(message_bytes)
-        except (ConnectionResetError, ConnectionAbortedError, OSError) as e:
-            print("Connection to VRCFT lost. Likely that VRFT was closed.")
-            # self.disconnect()
-            # time.sleep(5)
-            # print("Reconnecting...")
-            # self.connect()
-            # self.send_message(message_dict)
-            print("I have no idea how to handle this yet, exiting...")
-            self.callback()
+        with self.connection_lock:
+            if not self.connected:
+                print("Not connected to VRCFT, attempting to reconnect...")
+                self.start_reconnect_thread()
+                return  # Skip sending this message, but don't exit
+
+            message_json = json.dumps(message_dict)
+            message_bytes = (message_json + "\n").encode("utf-8")
+            try:
+                self.sock.sendall(message_bytes)
+            except (ConnectionResetError, ConnectionAbortedError, OSError) as e:
+                print(f"Connection to VRCFT lost: {str(e)}")
+                self.connected = False
+                self.start_reconnect_thread()  # Start reconnection attempts
 
     def disconnect(self) -> None:
         """
         Disconnect from the VRCFT server
         """
-        self.sock.shutdown(socket.SHUT_RDWR)
-        self.sock.close()
-        self.connected = False
+        with self.connection_lock:
+            self.should_reconnect = False  # Stop reconnection attempts
+            if self.sock:
+                try:
+                    self.sock.shutdown(socket.SHUT_RDWR)
+                    self.sock.close()
+                except:
+                    pass
+            self.sock = None
+            self.connected = False
 
 
 class BlendShapeParams:
@@ -178,6 +232,14 @@ class BlendShapeParams:
         """
         a = self.mul("EyeOpennessLeft")
         b = self.offset("EyeOpennessLeft")
+        
+        # Prevent division by zero or near-zero values
+        if abs(b) < 0.0001:  # If offset is too close to zero
+            return self.bound(
+                self.min("EyeOpennessLeft"),
+                self.max("EyeOpennessLeft"),
+                a * value  # Fall back to linear scaling
+            )
 
         return self.bound(
             self.min("EyeOpennessLeft"),
@@ -193,6 +255,15 @@ class BlendShapeParams:
         """
         a = self.mul("EyeOpennessRight")
         b = self.offset("EyeOpennessRight")
+        
+        # Prevent division by zero or near-zero values
+        if abs(b) < 0.0001:  # If offset is too close to zero
+            return self.bound(
+                self.min("EyeOpennessRight"),
+                self.max("EyeOpennessRight"),
+                a * value  # Fall back to linear scaling
+            )
+
         return self.bound(
             self.min("EyeOpennessRight"),
             self.max("EyeOpennessRight"),
@@ -342,7 +413,17 @@ class MPFace:
 
     def __init__(self, capture: int, modelpath: str, tuning_path: str, fps: int = 60) -> None:
         self.capture_device_id = capture
-        self.capture = cv2.VideoCapture(capture)  # opencv webcam feed
+        # Create separate camera captures for each thread with specific backend
+        self.display_capture = cv2.VideoCapture(capture, cv2.CAP_DSHOW)  # Use DirectShow backend
+        self.tracking_capture = cv2.VideoCapture(capture, cv2.CAP_DSHOW)
+        
+        # Set camera properties
+        for cap in [self.display_capture, self.tracking_capture]:
+            cap.set(cv2.CAP_PROP_FPS, fps)
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)  # Set a reasonable resolution
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Minimize frame buffering
+            
         self.model_path = modelpath
         self.fps = fps
         self.options = FaceLandmarkerOptions(
@@ -364,15 +445,18 @@ class MPFace:
         frame = tk.Frame(self.root)
         frame.pack()
 
-            # Label for MYTEXT
+        # Status label for face detection
+        self.status_label = tk.Label(frame, text="Status: No Face Detected", fg="red")
+        self.status_label.pack(side=tk.TOP, pady=5)
+
+        # Label for MYTEXT
         text_label = tk.Label(frame, text="Camera device ID")
-        text_label.pack(side=tk.LEFT, pady=10)  # Pack at the top with some padding
+        text_label.pack(side=tk.LEFT, pady=10)
 
         # Entry box for changing the capture device ID
         self.device_entry = tk.Entry(frame, width=10)
-        self.device_entry.insert(0, str(self.capture_device_id))  # Pre-fill with current device ID
-        self.device_entry.pack(side=tk.LEFT, padx=5)  # Pack on left side
-
+        self.device_entry.insert(0, str(self.capture_device_id))
+        self.device_entry.pack(side=tk.LEFT, padx=5)
 
         # Change button to call 
         change_button = tk.Button(frame, text="Change", command=self.change_cam_feed)
@@ -387,11 +471,14 @@ class MPFace:
         self.toggle_button.pack(pady=5)
         
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
-        self.sender = TCPSender("localhost", 5555, self.on_close)
+        self.sender = TCPSender("localhost", 5555)
         self.sender.connect()
         
-        threading.Thread(target=self.run, daemon=True).start()
-        threading.Thread(target=self.gen_tk_feed, daemon=True).start()
+        # Start threads
+        self.tracking_thread = threading.Thread(target=self.run, daemon=True)
+        self.display_thread = threading.Thread(target=self.gen_tk_feed, daemon=True)
+        self.tracking_thread.start()
+        self.display_thread.start()
 
         try:
             self.root.mainloop()
@@ -400,66 +487,147 @@ class MPFace:
             return
 
     def change_cam_feed(self) -> None:
-        # Example function that retrieves and prints the device ID from the entry box
-        new_device_id = int(self.device_entry.get())
-        print(f"New capture device ID: {new_device_id}")
-        self.capture_device_id = new_device_id
-        self.capture = cv2.VideoCapture(new_device_id)
-        with open("./preferences.json", "r") as f:
-            prefs = json.load(f)
-        with open("./preferences.json", "w") as f:
-            prefs["capture_device"] = new_device_id
-            json.dump(prefs, f)
-        # Here you might want to change the camera source or handle any other logic
+        try:
+            new_device_id = int(self.device_entry.get())
+            # Try to open the new camera device
+            test_capture = cv2.VideoCapture(new_device_id)
+            if not test_capture.isOpened():
+                messagebox.showerror("Error", f"Could not open camera device {new_device_id}")
+                return
+            test_capture.release()
+            
+            # If we get here, the new device is valid
+            self.capture_device_id = new_device_id
+            
+            # Update both captures
+            self.display_capture.release()
+            self.tracking_capture.release()
+            self.display_capture = cv2.VideoCapture(new_device_id, cv2.CAP_DSHOW)
+            self.tracking_capture = cv2.VideoCapture(new_device_id, cv2.CAP_DSHOW)
+            
+            # Update preferences
+            with open("./preferences.json", "r") as f:
+                prefs = json.load(f)
+            with open("./preferences.json", "w") as f:
+                prefs["capture_device"] = new_device_id
+                json.dump(prefs, f)
+                
+            messagebox.showinfo("Success", f"Successfully switched to camera device {new_device_id}")
+            
+        except ValueError:
+            messagebox.showerror("Error", "Please enter a valid number for the camera device ID")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to change camera device: {str(e)}")
 
     def process(self, result: FaceLandmarkerResult, output_image: mp.Image, timestamp_ms: int) -> None:
         if result.face_blendshapes:
             data = self.params.update(result)
-            self.sender.send_message(data)
+            if self.sender.connected:
+                #print(f"[{timestamp_ms}] Sending tracking data...")
+                self.sender.send_message(data)
+                #print(f"[{timestamp_ms}] Tracking data sent successfully")
+            else:
+                print(f"[{timestamp_ms}] VRCFT not connected, skipping data transmission")
+            # Update status label to show face is detected
+            self.root.after(0, lambda: self.status_label.config(
+                text="Status: Face Detected", 
+                fg="green"
+            ))
+        else:
+            # Update status label to show no face detected
+            self.root.after(0, lambda: self.status_label.config(
+                text="Status: No Face Detected", 
+                fg="red"
+            ))
 
     def gen_mp_frame(self, capture: cv2.VideoCapture):
-
-        ret, frame = capture.read()
-        if not ret:
-            print("Could not capture frame from webcam. It is likely that the camera id needs to be changed") 
-            return
-        # cv2.flip(frame, 1)
-        # could just specify 1440p and then select midway point as center
-        # height, width = frame.shape[:2]
-        # square_size = min(width, height)
-        # x1 = (width - square_size) // 2
-        # y1 = (height - square_size) // 2
-        # square_frame = frame[y1:y1 + square_size, x1:x1 + square_size]
-        # square_frame = cv2.cvtColor(square_frame, cv2.COLOR_BGR2RGB)  # Convert color from BGR to RGB
-        # square_frame = np.array(square_frame, dtype=np.uint8)  # Ensure it's the correct type
-        square_frame = frame
-        mp_frame = mp.Image(image_format=mp.ImageFormat.SRGB, data=square_frame)
-        return mp_frame
+        if not capture.isOpened():
+            print("Tracking camera is not opened. Attempting to reconnect...")
+            capture.release()
+            capture.open(self.capture_device_id, cv2.CAP_DSHOW)
+            if not capture.isOpened():
+                print("Failed to reconnect to tracking camera")
+                return None
+                
+        # Try to grab frame multiple times if needed
+        for attempt in range(3):  # Try up to 3 times
+            ret, frame = capture.read()
+            if ret:
+                # Convert BGR to RGB
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                mp_frame = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_rgb)
+                return mp_frame
+            print(f"Frame capture attempt {attempt + 1} failed, retrying...")
+            time.sleep(0.01)  # Small delay between attempts
+            
+        print("Could not capture frame from tracking camera after multiple attempts") 
+        return None
     
     def gen_tk_feed(self):
+        print("Display thread started")
+        frame_count = 0
         while not self.exit:
-            time.sleep(0.1)
-            ret, frame = self.capture.read()
-            if ret:
-                cv2_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                img = Image.fromarray(cv2_image)
-                imgtk = ImageTk.PhotoImage(image=img)
-                # self.video_label.imgtk = imgtk
-                self.video_label.configure(image=imgtk)
-                self.video_label.image = imgtk
-        
+            if not self.display_capture.isOpened():
+                print("Display camera is not opened. Attempting to reconnect...")
+                self.display_capture.release()
+                self.display_capture.open(self.capture_device_id, cv2.CAP_DSHOW)
+                if not self.display_capture.isOpened():
+                    print("Failed to reconnect to display camera")
+                    time.sleep(1)
+                    continue
+                    
+            # Try to grab frame multiple times if needed
+            for attempt in range(3):
+                ret, frame = self.display_capture.read()
+                if ret:
+                    cv2_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    img = Image.fromarray(cv2_image)
+                    imgtk = ImageTk.PhotoImage(image=img)
+                    self.video_label.configure(image=imgtk)
+                    self.video_label.image = imgtk
+                    frame_count += 1
+                    if frame_count % 30 == 0:  # Log every 30 frames
+                        print(f"Display thread: Processed {frame_count} frames")
+                    break
+                print(f"Display frame capture attempt {attempt + 1} failed, retrying...")
+                time.sleep(0.01)
+                
+            time.sleep(1 / self.fps)
 
     def run(self) -> None:
+        print("Tracking thread started")
+        frame_count = 0
         try:
             with self.landmarker as landmarker:
                 while not self.exit:
-                    landmarker.detect_async(
-                        self.gen_mp_frame(self.capture), int(time.time() * 1000)
-                    )
+                    if not self.tracking_capture.isOpened():
+                        print("Tracking camera is not opened. Attempting to reconnect...")
+                        self.tracking_capture.release()
+                        self.tracking_capture.open(self.capture_device_id, cv2.CAP_DSHOW)
+                        if not self.tracking_capture.isOpened():
+                            print("Failed to reconnect to tracking camera")
+                            time.sleep(1)
+                            continue
+                            
+                    mp_frame = self.gen_mp_frame(self.tracking_capture)
+                    if mp_frame is not None:
+                        try:
+                            frame_count += 1
+                            if frame_count % 30 == 0:  # Log every 30 frames
+                                print(f"Tracking thread: Processed {frame_count} frames")
+                            landmarker.detect_async(
+                                mp_frame, int(time.time() * 1000)
+                            )
+                        except Exception as e:
+                            print(f"Error in detect_async: {str(e)}")
+                            time.sleep(1)
                     time.sleep(1 / self.fps)
         except KeyboardInterrupt:
+            print("Tracking thread interrupted")
             return None
-
+        except Exception as e:
+            print(f"Error in tracking thread: {str(e)}")
+            self.on_close()
 
     def create_interface(self) -> None:
         # Create a frame for the parameters
@@ -567,10 +735,20 @@ class MPFace:
         )
 
     def on_close(self) -> None:
+        print("Closing application...")
         self.params.print_stats()
-        print("Exiting...")
         self.exit = True
+        print("Waiting for threads to finish...")
+        if self.tracking_thread and self.tracking_thread.is_alive():
+            self.tracking_thread.join(timeout=1.0)
+        if self.display_thread and self.display_thread.is_alive():
+            self.display_thread.join(timeout=1.0)
+        print("Releasing camera captures...")
+        self.display_capture.release()
+        self.tracking_capture.release()
+        print("Disconnecting from VRCFT...")
         self.sender.disconnect()
+        print("Destroying window...")
         self.root.destroy()
 
 
