@@ -543,92 +543,24 @@ class MPFace:
         """Get a dictionary of available camera devices with their names"""
         cameras = {}
         
-        try:
-            import win32com.client
-            wmi = win32com.client.GetObject("winmgmts:")
-            print("Scanning for camera devices...")
-            self.progress_label.config(text="Scanning for camera devices...")
+        print("Scanning for camera devices...")
+        self.progress_label.config(text="Scanning for camera devices...")
+        self.loading_root.update()
+        
+        # Check first 10 indices for available cameras
+        for i in range(10):
+            self.progress_label.config(text=f"Checking camera index {i}...")
             self.loading_root.update()
             
-            # First, get all camera devices from WMI
-            camera_devices = []
-            for device in wmi.InstancesOf("Win32_PnPEntity"):
-                if hasattr(device, 'Name') and device.Name is not None:
-                    name = device.Name.lower()
-                    if "camera" in name or "webcam" in name or "video" in name:
-                        camera_devices.append(device)
-                        print(f"Found camera device: {device.Name}")
-            
-            # Then check more indices for available cameras
-            for i in range(20):  # Check more indices
-                self.progress_label.config(text=f"Checking camera index {i}...")
-                self.loading_root.update()
-                
-                try:
-                    cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)
-                    if cap.isOpened():
-                        # Try to get camera name from WMI
-                        found_name = False
-                        for device in camera_devices:
-                            try:
-                                # Try to match by device ID or description
-                                if hasattr(device, 'DeviceID'):
-                                    device_id = device.DeviceID.lower()
-                                    if f"\\{i}" in device_id or f"\\{i}." in device_id:
-                                        cameras[i] = device.Name
-                                        found_name = True
-                                        print(f"Matched camera {i} to device: {device.Name}")
-                                        break
-                            except:
-                                continue
-                        
-                        # If no WMI match, try to get name from OpenCV
-                        if not found_name:
-                            try:
-                                name = cap.get(cv2.CAP_PROP_DEVICE_DESCRIPTION)
-                                if name and name.strip():
-                                    cameras[i] = name.strip()
-                                    print(f"Found camera {i} with OpenCV description: {name.strip()}")
-                                else:
-                                    cameras[i] = f"Camera {i}"
-                                    print(f"Found camera {i} with default name")
-                            except:
-                                cameras[i] = f"Camera {i}"
-                                print(f"Found camera {i} with default name")
-                        
-                        cap.release()
-                except Exception as e:
-                    print(f"Error checking camera {i}: {str(e)}")
-                    continue
-                
-        except ImportError:
-            print("win32com not available, falling back to basic camera detection")
-            self.progress_label.config(text="Using basic camera detection...")
-            self.loading_root.update()
-            
-            # Fallback to basic detection
-            for i in range(20):  # Check more indices
-                self.progress_label.config(text=f"Checking camera index {i}...")
-                self.loading_root.update()
-                
-                try:
-                    cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)
-                    if cap.isOpened():
-                        try:
-                            name = cap.get(cv2.CAP_PROP_DEVICE_DESCRIPTION)
-                            if name and name.strip():
-                                cameras[i] = name.strip()
-                                print(f"Found camera {i} with description: {name.strip()}")
-                            else:
-                                cameras[i] = f"Camera {i}"
-                                print(f"Found camera {i} with default name")
-                        except:
-                            cameras[i] = f"Camera {i}"
-                            print(f"Found camera {i} with default name")
-                        cap.release()
-                except Exception as e:
-                    print(f"Error checking camera {i}: {str(e)}")
-                    continue
+            try:
+                cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)
+                if cap.isOpened():
+                    cameras[i] = f"Camera {i}"
+                    print(f"Found camera {i}")
+                    cap.release()
+            except Exception as e:
+                print(f"Error checking camera {i}: {str(e)}")
+                continue
         
         # If no cameras found, add a default camera
         if not cameras:
