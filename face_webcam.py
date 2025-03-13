@@ -413,6 +413,9 @@ class MPFace:
 
     def __init__(self, capture: int, modelpath: str, tuning_path: str, fps: int = 60) -> None:
         self.capture_device_id = capture
+        self.exit = False
+        self.thread_error = False
+        
         # Create separate camera captures for each thread with specific backend
         self.display_capture = cv2.VideoCapture(capture, cv2.CAP_DSHOW)  # Use DirectShow backend
         self.tracking_capture = cv2.VideoCapture(capture, cv2.CAP_DSHOW)
@@ -437,8 +440,11 @@ class MPFace:
 
         self.root = tk.Tk()
         self.root.title("Blend Shape Parameters")
-        self.exit = False
-
+        
+        # Add error handling for window close
+        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+        
+        # Create interface elements
         self.create_interface()
 
         # Frame to hold the camera feed and the entry + button
@@ -449,7 +455,7 @@ class MPFace:
         self.status_label = tk.Label(frame, text="Status: No Face Detected", fg="red")
         self.status_label.pack(side=tk.TOP, pady=5)
 
-        # Label for MYTEXT
+        # Label for camera device ID
         text_label = tk.Label(frame, text="Camera device ID")
         text_label.pack(side=tk.LEFT, pady=10)
 
@@ -470,21 +476,37 @@ class MPFace:
         self.toggle_button = tk.Button(self.root, text="Show Tuning Options", command=self.toggle_tuning)
         self.toggle_button.pack(pady=5)
         
-        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+        # Initialize TCP sender
         self.sender = TCPSender("localhost", 5555)
         self.sender.connect()
         
-        # Start threads
-        self.tracking_thread = threading.Thread(target=self.run, daemon=True)
-        self.display_thread = threading.Thread(target=self.gen_tk_feed, daemon=True)
-        self.tracking_thread.start()
-        self.display_thread.start()
-
+        # Start threads with error handling
         try:
+            self.tracking_thread = threading.Thread(target=self.run, daemon=True)
+            self.display_thread = threading.Thread(target=self.gen_tk_feed, daemon=True)
+            self.tracking_thread.start()
+            self.display_thread.start()
+            
+            # Add thread monitoring
+            self.root.after(1000, self.check_threads)
+            
+            # Start the main loop
             self.root.mainloop()
-        except KeyboardInterrupt:
+        except Exception as e:
+            print(f"Error during initialization: {str(e)}")
             self.on_close()
             return
+
+    def check_threads(self) -> None:
+        """Monitor thread health and handle errors"""
+        if not self.exit:
+            if not self.tracking_thread.is_alive() or not self.display_thread.is_alive():
+                print("One or more threads have stopped unexpectedly")
+                self.thread_error = True
+                self.on_close()
+            else:
+                # Schedule next check
+                self.root.after(1000, self.check_threads)
 
     def change_cam_feed(self) -> None:
         try:
@@ -668,16 +690,16 @@ class MPFace:
             mul_entry = tk.Entry(frame, width=10)
             mul_entry.insert(0, str(values["mul"]))
             mul_entry.pack(side=tk.LEFT)
-            mul_entry.bind("<Return>", lambda event, k=key: self.update_mul_from_entry(k, mul_entry.get()))
-            mul_entry.bind("<KP_Enter>", lambda event, key=key, e=mul_entry: self.update_mul_from_entry(key, e.get()))
-            mul_entry.bind("<FocusOut>", lambda event, key=key, e=mul_entry: self.update_mul_from_entry(key, e.get()))
+            mul_entry.bind("<Return>", lambda event, k=key, e=mul_entry: self.update_mul_from_entry(k, e.get()))
+            mul_entry.bind("<KP_Enter>", lambda event, k=key, e=mul_entry: self.update_mul_from_entry(k, e.get()))
+            mul_entry.bind("<FocusOut>", lambda event, k=key, e=mul_entry: self.update_mul_from_entry(k, e.get()))
 
             offset_entry = tk.Entry(frame, width=10)
             offset_entry.insert(0, str(values["offset"]))
             offset_entry.pack(side=tk.LEFT)
-            offset_entry.bind("<Return>", lambda event, key=key: self.update_offset_from_entry(key, offset_entry.get()),)
-            offset_entry.bind("<KP_Enter>", lambda event, key=key, e=mul_entry: self.update_offset_from_entry(key, e.get()))
-            offset_entry.bind("<FocusOut>", lambda event, key=key, e=mul_entry: self.update_offset_from_entry(key, e.get()))
+            offset_entry.bind("<Return>", lambda event, k=key, e=offset_entry: self.update_offset_from_entry(k, e.get()))
+            offset_entry.bind("<KP_Enter>", lambda event, k=key, e=offset_entry: self.update_offset_from_entry(k, e.get()))
+            offset_entry.bind("<FocusOut>", lambda event, k=key, e=offset_entry: self.update_offset_from_entry(k, e.get()))
             self.entries[key] = {"mul_entry": mul_entry, "offset_entry": offset_entry}
 
         save_button = tk.Button(
@@ -735,21 +757,31 @@ class MPFace:
         )
 
     def on_close(self) -> None:
+        """Handle application shutdown"""
         print("Closing application...")
-        self.params.print_stats()
         self.exit = True
+        
+        # Stop threads gracefully
         print("Waiting for threads to finish...")
-        if self.tracking_thread and self.tracking_thread.is_alive():
+        if hasattr(self, 'tracking_thread') and self.tracking_thread.is_alive():
             self.tracking_thread.join(timeout=1.0)
-        if self.display_thread and self.display_thread.is_alive():
+        if hasattr(self, 'display_thread') and self.display_thread.is_alive():
             self.display_thread.join(timeout=1.0)
+            
+        # Release resources
         print("Releasing camera captures...")
-        self.display_capture.release()
-        self.tracking_capture.release()
+        if hasattr(self, 'display_capture'):
+            self.display_capture.release()
+        if hasattr(self, 'tracking_capture'):
+            self.tracking_capture.release()
+            
         print("Disconnecting from VRCFT...")
-        self.sender.disconnect()
+        if hasattr(self, 'sender'):
+            self.sender.disconnect()
+            
         print("Destroying window...")
-        self.root.destroy()
+        if hasattr(self, 'root'):
+            self.root.destroy()
 
 
 # change this line below.
