@@ -233,41 +233,49 @@ class BlendShapeParams:
         a = self.mul("EyeOpennessLeft")
         b = self.offset("EyeOpennessLeft")
         
-        # Prevent division by zero or near-zero values
+        # Handle zero or near-zero offset values
         if abs(b) < 0.0001:  # If offset is too close to zero
+            # Use linear scaling without minimum value to allow complete closure
+            scaled_value = a * value
             return self.bound(
-                self.min("EyeOpennessLeft"),
+                self.min("EyeOpennessLeft"),  # Allow complete closure
                 self.max("EyeOpennessLeft"),
-                a * value  # Fall back to linear scaling
+                scaled_value
             )
 
+        # Use power function for non-zero offsets
+        scaled_value = a * math.pow(value, 1 / b)
         return self.bound(
-            self.min("EyeOpennessLeft"),
+            self.min("EyeOpennessLeft"),  # Allow complete closure
             self.max("EyeOpennessLeft"),
-            a * math.pow(value, 1 / b),
+            scaled_value
         )
 
     def eye_openess_right(self, value: float) -> float:
         """
-        Custom function for EyeOpennessLeft processing.
+        Custom function for EyeOpennessRight processing.
         instead of offset + mul* value, it uses mul* pow(value, 1/offset)
         which is a vaguely sigmoidal function
         """
         a = self.mul("EyeOpennessRight")
         b = self.offset("EyeOpennessRight")
         
-        # Prevent division by zero or near-zero values
+        # Handle zero or near-zero offset values
         if abs(b) < 0.0001:  # If offset is too close to zero
+            # Use linear scaling without minimum value to allow complete closure
+            scaled_value = a * value
             return self.bound(
-                self.min("EyeOpennessRight"),
+                self.min("EyeOpennessRight"),  # Allow complete closure
                 self.max("EyeOpennessRight"),
-                a * value  # Fall back to linear scaling
+                scaled_value
             )
 
+        # Use power function for non-zero offsets
+        scaled_value = a * math.pow(value, 1 / b)
         return self.bound(
-            self.min("EyeOpennessRight"),
+            self.min("EyeOpennessRight"),  # Allow complete closure
             self.max("EyeOpennessRight"),
-            a * math.pow(value, 1 / b),
+            scaled_value
         )
 
     def __init__(self, tuning_params_path: str) -> None:
