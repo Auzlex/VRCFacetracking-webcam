@@ -23,7 +23,7 @@
  "EyeWideRight": {"cfunct": "", "max": 1, "min": 0, "mul": 5.0, "offset": 0},
  "JawForward": {"cfunct": "", "max": 1, "min": 0, "mul": 2.0, "offset": 0.25},
  "JawLeft": {"cfunct": "", "max": 1, "min": 0, "mul": 5.0, "offset": 0},
- "JawOpen": {"cfunct": "", "max": 1, "min": 0, "mul": 0.1, "offset": 0},
+ "JawOpen": {"cfunct": "", "max": 1, "min": 0, "mul": 0.05, "offset": 0},
  "JawRight": {"cfunct": "", "max": 1, "min": 0, "mul": 5.0, "offset": 0},
  "LipFunnel": {"cfunct": "", "max": 1, "min": 0, "mul": 1.0, "offset": 0},
  "LipPucker": {"cfunct": "", "max": 1, "min": 0, "mul": 0.7, "offset": 0},

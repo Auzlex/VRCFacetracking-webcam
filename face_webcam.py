@@ -13,6 +13,7 @@ from PIL import Image, ImageTk
 
 import mediapipe as mp
 import cv2
+from tkinter import ttk
 
 
 BaseOptions = mp.tasks.BaseOptions
@@ -420,6 +421,29 @@ class BlendShapeParams:
 class MPFace:
 
     def __init__(self, capture: int, modelpath: str, tuning_path: str, fps: int = 60) -> None:
+        # Create loading window
+        self.loading_root = tk.Tk()
+        self.loading_root.title("Loading")
+        self.loading_root.geometry("300x100")
+        
+        # Add loading label
+        loading_label = tk.Label(self.loading_root, text="Scanning for cameras...")
+        loading_label.pack(pady=20)
+        
+        # Add progress label
+        self.progress_label = tk.Label(self.loading_root, text="")
+        self.progress_label.pack(pady=10)
+        
+        # Update the window
+        self.loading_root.update()
+        
+        # Get available camera devices
+        self.available_cameras = self.get_available_cameras()
+        
+        # Destroy loading window
+        self.loading_root.destroy()
+        
+        # Initialize main window
         self.capture_device_id = capture
         self.exit = False
         self.thread_error = False
@@ -455,7 +479,7 @@ class MPFace:
         # Create interface elements
         self.create_interface()
 
-        # Frame to hold the camera feed and the entry + button
+        # Frame to hold the camera feed and the camera selection
         frame = tk.Frame(self.root)
         frame.pack()
 
@@ -463,18 +487,28 @@ class MPFace:
         self.status_label = tk.Label(frame, text="Status: No Face Detected", fg="red")
         self.status_label.pack(side=tk.TOP, pady=5)
 
-        # Label for camera device ID
-        text_label = tk.Label(frame, text="Camera device ID")
-        text_label.pack(side=tk.LEFT, pady=10)
+        # Camera selection frame
+        camera_frame = tk.Frame(frame)
+        camera_frame.pack(side=tk.TOP, pady=5)
 
-        # Entry box for changing the capture device ID
-        self.device_entry = tk.Entry(frame, width=10)
-        self.device_entry.insert(0, str(self.capture_device_id))
-        self.device_entry.pack(side=tk.LEFT, padx=5)
+        # Label for camera selection
+        tk.Label(camera_frame, text="Select Camera:").pack(side=tk.LEFT, padx=5)
 
-        # Change button to call 
-        change_button = tk.Button(frame, text="Change", command=self.change_cam_feed)
-        change_button.pack(side=tk.LEFT, padx=5)
+        # Create dropdown for camera selection
+        self.camera_var = tk.StringVar()
+        self.camera_dropdown = ttk.Combobox(camera_frame, 
+                                          textvariable=self.camera_var,
+                                          values=list(self.available_cameras.values()),
+                                          state="readonly",
+                                          width=40)
+        self.camera_dropdown.pack(side=tk.LEFT, padx=5)
+        
+        # Set initial selection
+        initial_camera_name = self.available_cameras.get(capture, "Unknown Camera")
+        self.camera_dropdown.set(initial_camera_name)
+        
+        # Bind selection change event
+        self.camera_dropdown.bind('<<ComboboxSelected>>', self.on_camera_select)
 
         # Create video feed label
         self.video_label = tk.Label(frame)
@@ -505,6 +539,175 @@ class MPFace:
             self.on_close()
             return
 
+    def get_available_cameras(self) -> dict[int, str]:
+        """Get a dictionary of available camera devices with their names"""
+        cameras = {}
+        
+        try:
+            import win32com.client
+            wmi = win32com.client.GetObject("winmgmts:")
+            print("Scanning for camera devices...")
+            self.progress_label.config(text="Scanning for camera devices...")
+            self.loading_root.update()
+            
+            # First, get all camera devices from WMI
+            camera_devices = []
+            for device in wmi.InstancesOf("Win32_PnPEntity"):
+                if hasattr(device, 'Name') and device.Name is not None:
+                    name = device.Name.lower()
+                    if "camera" in name or "webcam" in name or "video" in name:
+                        camera_devices.append(device)
+                        print(f"Found camera device: {device.Name}")
+            
+            # Then check more indices for available cameras
+            for i in range(20):  # Check more indices
+                self.progress_label.config(text=f"Checking camera index {i}...")
+                self.loading_root.update()
+                
+                try:
+                    cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)
+                    if cap.isOpened():
+                        # Try to get camera name from WMI
+                        found_name = False
+                        for device in camera_devices:
+                            try:
+                                # Try to match by device ID or description
+                                if hasattr(device, 'DeviceID'):
+                                    device_id = device.DeviceID.lower()
+                                    if f"\\{i}" in device_id or f"\\{i}." in device_id:
+                                        cameras[i] = device.Name
+                                        found_name = True
+                                        print(f"Matched camera {i} to device: {device.Name}")
+                                        break
+                            except:
+                                continue
+                        
+                        # If no WMI match, try to get name from OpenCV
+                        if not found_name:
+                            try:
+                                name = cap.get(cv2.CAP_PROP_DEVICE_DESCRIPTION)
+                                if name and name.strip():
+                                    cameras[i] = name.strip()
+                                    print(f"Found camera {i} with OpenCV description: {name.strip()}")
+                                else:
+                                    cameras[i] = f"Camera {i}"
+                                    print(f"Found camera {i} with default name")
+                            except:
+                                cameras[i] = f"Camera {i}"
+                                print(f"Found camera {i} with default name")
+                        
+                        cap.release()
+                except Exception as e:
+                    print(f"Error checking camera {i}: {str(e)}")
+                    continue
+                
+        except ImportError:
+            print("win32com not available, falling back to basic camera detection")
+            self.progress_label.config(text="Using basic camera detection...")
+            self.loading_root.update()
+            
+            # Fallback to basic detection
+            for i in range(20):  # Check more indices
+                self.progress_label.config(text=f"Checking camera index {i}...")
+                self.loading_root.update()
+                
+                try:
+                    cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)
+                    if cap.isOpened():
+                        try:
+                            name = cap.get(cv2.CAP_PROP_DEVICE_DESCRIPTION)
+                            if name and name.strip():
+                                cameras[i] = name.strip()
+                                print(f"Found camera {i} with description: {name.strip()}")
+                            else:
+                                cameras[i] = f"Camera {i}"
+                                print(f"Found camera {i} with default name")
+                        except:
+                            cameras[i] = f"Camera {i}"
+                            print(f"Found camera {i} with default name")
+                        cap.release()
+                except Exception as e:
+                    print(f"Error checking camera {i}: {str(e)}")
+                    continue
+        
+        # If no cameras found, add a default camera
+        if not cameras:
+            print("No cameras found, adding default camera")
+            cameras[0] = "Default Camera"
+        
+        print(f"Total cameras found: {len(cameras)}")
+        self.progress_label.config(text=f"Found {len(cameras)} cameras")
+        self.loading_root.update()
+        time.sleep(1)  # Show the final count briefly
+        
+        return cameras
+
+    def on_camera_select(self, event=None) -> None:
+        """Handle camera selection change"""
+        try:
+            # Get selected camera name
+            selected_name = self.camera_var.get()
+            
+            # Find corresponding device ID
+            new_device_id = None
+            for device_id, name in self.available_cameras.items():
+                if name == selected_name:
+                    new_device_id = device_id
+                    break
+            
+            if new_device_id is None:
+                messagebox.showerror("Error", "Could not find selected camera device")
+                return
+                
+            # Try to open the new camera device
+            test_capture = cv2.VideoCapture(new_device_id, cv2.CAP_DSHOW)
+            if not test_capture.isOpened():
+                messagebox.showerror("Error", f"Could not open camera device {new_device_id}")
+                return
+            test_capture.release()
+            
+            # If we get here, the new device is valid
+            self.capture_device_id = new_device_id
+            
+            # Update both captures
+            try:
+                self.display_capture.release()
+                self.tracking_capture.release()
+                time.sleep(0.1)  # Small delay before reconnecting
+                self.display_capture = cv2.VideoCapture(new_device_id, cv2.CAP_DSHOW)
+                self.tracking_capture = cv2.VideoCapture(new_device_id, cv2.CAP_DSHOW)
+                
+                # Set camera properties for new captures
+                for cap in [self.display_capture, self.tracking_capture]:
+                    cap.set(cv2.CAP_PROP_FPS, self.fps)
+                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            except Exception as e:
+                print(f"Error switching cameras: {str(e)}")
+                messagebox.showerror("Error", f"Failed to switch cameras: {str(e)}")
+                # Try to restore previous camera
+                try:
+                    self.display_capture = cv2.VideoCapture(self.capture_device_id, cv2.CAP_DSHOW)
+                    self.tracking_capture = cv2.VideoCapture(self.capture_device_id, cv2.CAP_DSHOW)
+                except:
+                    pass
+                return
+            
+            # Update preferences
+            with open("./preferences.json", "r") as f:
+                prefs = json.load(f)
+            with open("./preferences.json", "w") as f:
+                prefs["capture_device"] = new_device_id
+                json.dump(prefs, f)
+                
+            messagebox.showinfo("Success", f"Successfully switched to {selected_name}")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to change camera device: {str(e)}")
+            # Reset dropdown to previous selection
+            self.camera_var.set(self.available_cameras.get(self.capture_device_id, "Unknown Camera"))
+
     def check_threads(self) -> None:
         """Monitor thread health and handle errors"""
         if not self.exit:
@@ -515,39 +718,6 @@ class MPFace:
             else:
                 # Schedule next check
                 self.root.after(1000, self.check_threads)
-
-    def change_cam_feed(self) -> None:
-        try:
-            new_device_id = int(self.device_entry.get())
-            # Try to open the new camera device
-            test_capture = cv2.VideoCapture(new_device_id)
-            if not test_capture.isOpened():
-                messagebox.showerror("Error", f"Could not open camera device {new_device_id}")
-                return
-            test_capture.release()
-            
-            # If we get here, the new device is valid
-            self.capture_device_id = new_device_id
-            
-            # Update both captures
-            self.display_capture.release()
-            self.tracking_capture.release()
-            self.display_capture = cv2.VideoCapture(new_device_id, cv2.CAP_DSHOW)
-            self.tracking_capture = cv2.VideoCapture(new_device_id, cv2.CAP_DSHOW)
-            
-            # Update preferences
-            with open("./preferences.json", "r") as f:
-                prefs = json.load(f)
-            with open("./preferences.json", "w") as f:
-                prefs["capture_device"] = new_device_id
-                json.dump(prefs, f)
-                
-            messagebox.showinfo("Success", f"Successfully switched to camera device {new_device_id}")
-            
-        except ValueError:
-            messagebox.showerror("Error", "Please enter a valid number for the camera device ID")
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to change camera device: {str(e)}")
 
     def process(self, result: FaceLandmarkerResult, output_image: mp.Image, timestamp_ms: int) -> None:
         if result.face_blendshapes:
@@ -573,10 +743,21 @@ class MPFace:
     def gen_mp_frame(self, capture: cv2.VideoCapture):
         if not capture.isOpened():
             print("Tracking camera is not opened. Attempting to reconnect...")
-            capture.release()
-            capture.open(self.capture_device_id, cv2.CAP_DSHOW)
-            if not capture.isOpened():
-                print("Failed to reconnect to tracking camera")
+            try:
+                capture.release()
+                time.sleep(0.1)  # Small delay before reconnecting
+                capture.open(self.capture_device_id, cv2.CAP_DSHOW)
+                if not capture.isOpened():
+                    print("Failed to reconnect to tracking camera, will retry...")
+                    return None
+                    
+                # Set camera properties after reconnecting
+                capture.set(cv2.CAP_PROP_FPS, self.fps)
+                capture.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            except Exception as e:
+                print(f"Error reconnecting to tracking camera: {str(e)}")
                 return None
                 
         # Try to grab frame multiple times if needed
@@ -597,32 +778,66 @@ class MPFace:
         print("Display thread started")
         frame_count = 0
         while not self.exit:
-            if not self.display_capture.isOpened():
-                print("Display camera is not opened. Attempting to reconnect...")
-                self.display_capture.release()
-                self.display_capture.open(self.capture_device_id, cv2.CAP_DSHOW)
+            try:
                 if not self.display_capture.isOpened():
-                    print("Failed to reconnect to display camera")
-                    time.sleep(1)
-                    continue
-                    
-            # Try to grab frame multiple times if needed
-            for attempt in range(3):
-                ret, frame = self.display_capture.read()
-                if ret:
-                    cv2_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    img = Image.fromarray(cv2_image)
-                    imgtk = ImageTk.PhotoImage(image=img)
-                    self.video_label.configure(image=imgtk)
-                    self.video_label.image = imgtk
-                    frame_count += 1
-                    if frame_count % 30 == 0:  # Log every 30 frames
-                        print(f"Display thread: Processed {frame_count} frames")
-                    break
-                print(f"Display frame capture attempt {attempt + 1} failed, retrying...")
-                time.sleep(0.01)
-                
-            time.sleep(1 / self.fps)
+                    print("Display camera is not opened. Attempting to reconnect...")
+                    try:
+                        self.display_capture.release()
+                        time.sleep(0.1)  # Small delay before reconnecting
+                        self.display_capture = cv2.VideoCapture(self.capture_device_id, cv2.CAP_DSHOW)
+                        if not self.display_capture.isOpened():
+                            print("Failed to reconnect to display camera, will retry...")
+                            time.sleep(1)
+                            continue
+                            
+                        # Set camera properties after reconnecting
+                        self.display_capture.set(cv2.CAP_PROP_FPS, self.fps)
+                        self.display_capture.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                        self.display_capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                        self.display_capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                    except Exception as e:
+                        print(f"Error reconnecting to display camera: {str(e)}")
+                        time.sleep(1)
+                        continue
+                        
+                # Try to grab frame multiple times if needed
+                for attempt in range(3):
+                    try:
+                        ret, frame = self.display_capture.read()
+                        if ret and frame is not None:
+                            cv2_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                            img = Image.fromarray(cv2_image)
+                            imgtk = ImageTk.PhotoImage(image=img)
+                            self.video_label.configure(image=imgtk)
+                            self.video_label.image = imgtk
+                            frame_count += 1
+                            if frame_count % 30 == 0:  # Log every 30 frames
+                                print(f"Display thread: Processed {frame_count} frames")
+                            break
+                        else:
+                            print(f"Frame capture attempt {attempt + 1} failed, retrying...")
+                            time.sleep(0.01)
+                    except cv2.error as e:
+                        print(f"OpenCV error during frame capture: {str(e)}")
+                        self.display_capture.release()
+                        time.sleep(0.1)
+                        self.display_capture = cv2.VideoCapture(self.capture_device_id, cv2.CAP_DSHOW)
+                        time.sleep(0.1)
+                        continue
+                    except Exception as e:
+                        print(f"Unexpected error during frame capture: {str(e)}")
+                        time.sleep(0.1)
+                        continue
+                        
+                time.sleep(1 / self.fps)
+            except Exception as e:
+                print(f"Error in display thread: {str(e)}")
+                time.sleep(1)
+                try:
+                    self.display_capture.release()
+                    self.display_capture = cv2.VideoCapture(self.capture_device_id, cv2.CAP_DSHOW)
+                except:
+                    pass
 
     def run(self) -> None:
         print("Tracking thread started")
@@ -632,10 +847,22 @@ class MPFace:
                 while not self.exit:
                     if not self.tracking_capture.isOpened():
                         print("Tracking camera is not opened. Attempting to reconnect...")
-                        self.tracking_capture.release()
-                        self.tracking_capture.open(self.capture_device_id, cv2.CAP_DSHOW)
-                        if not self.tracking_capture.isOpened():
-                            print("Failed to reconnect to tracking camera")
+                        try:
+                            self.tracking_capture.release()
+                            time.sleep(0.1)  # Small delay before reconnecting
+                            self.tracking_capture.open(self.capture_device_id, cv2.CAP_DSHOW)
+                            if not self.tracking_capture.isOpened():
+                                print("Failed to reconnect to tracking camera, will retry...")
+                                time.sleep(1)
+                                continue
+                                
+                            # Set camera properties after reconnecting
+                            self.tracking_capture.set(cv2.CAP_PROP_FPS, self.fps)
+                            self.tracking_capture.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                            self.tracking_capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                            self.tracking_capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                        except Exception as e:
+                            print(f"Error reconnecting to tracking camera: {str(e)}")
                             time.sleep(1)
                             continue
                             
@@ -657,7 +884,14 @@ class MPFace:
             return None
         except Exception as e:
             print(f"Error in tracking thread: {str(e)}")
-            self.on_close()
+            # Don't exit on error, just keep trying
+            while not self.exit:
+                time.sleep(1)
+                try:
+                    self.tracking_capture.release()
+                    self.tracking_capture.open(self.capture_device_id, cv2.CAP_DSHOW)
+                except:
+                    pass
 
     def create_interface(self) -> None:
         # Create a frame for the parameters
