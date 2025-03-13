@@ -2,7 +2,7 @@
 
 This program utilizes your webcam for face tracking, enabling eye and mouth tracking capabilities. It does not require a phone, allowing for a straightforward and convenient setup for VRChat users.
 
-> **Note**: This project has been modified by ML agents using Cursor IDE. While you can use any IDE.
+> **Note**: This project has been modified by ML agents using Cursor IDE.
 
 # Recent Improvements
 - Enhanced camera capture stability
